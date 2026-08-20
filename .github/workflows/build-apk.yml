@@ -1,0 +1,58 @@
+name: Build Android APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - chatgpt/android-upload
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v3
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.5.0'
+
+      - name: Install Android SDK packages
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Extract Android project
+        run: unzip -q Pastel_Mobile_Assistant_Android_v0.1.zip
+
+      - name: Build debug APK
+        working-directory: Pastel_Mobile_Assistant_Android_v0.1
+        run: gradle assembleDebug
+
+      - name: Prepare APK artifact
+        run: cp Pastel_Mobile_Assistant_Android_v0.1/app/build/outputs/apk/debug/app-debug.apk Pastel-Mobile-Assistant.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Pastel-Mobile-Assistant-APK
+          path: Pastel-Mobile-Assistant.apk
+
+      - name: Publish stable APK download
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete mobile-latest --cleanup-tag -y || true
+          gh release create mobile-latest Pastel-Mobile-Assistant.apk \
+            --title "Pastel Mobile Assistant" \
+            --notes "Android test build. Review all generated Sage Pastel import files before Update/Process."
