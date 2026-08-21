@@ -1,0 +1,76 @@
+name: Publish Pastel Payment Assistant v1.10 Portable Final
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/release-v110-final.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Build verified portable v1.10
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $parts=Get-ChildItem 'desktop\v1.9_parts\part*.b64' | Sort-Object Name
+          $text=[System.Text.StringBuilder]::new()
+          foreach($p in $parts){[void]$text.Append((Get-Content $p.FullName -Raw).Trim())}
+          [IO.File]::WriteAllBytes('desktop\v1.9.zip',[Convert]::FromBase64String($text.ToString()))
+          if((Get-FileHash 'desktop\v1.9.zip' -Algorithm SHA256).Hash.ToLower() -ne '1a34c916a907ab17d274a498118736a70a6f08764be31893e545e707edf501d7'){throw 'v1.9 source verification failed'}
+          New-Item -ItemType Directory -Force 'desktop\v110final' | Out-Null
+          Expand-Archive 'desktop\v1.9.zip' 'desktop\v110final' -Force
+          python -c "import base64,gzip,pathlib,hashlib; b=gzip.decompress(base64.b64decode(pathlib.Path(r'desktop\v1.10_patch.gz.b64').read_text().strip())); assert hashlib.sha256(b).hexdigest()=='8684e43ca3b90dc5b3688af6ea0098dabf6592ef65aa8a97f4ce46473f0da217'; pathlib.Path(r'desktop\v1.10.patch').write_bytes(b)"
+          Push-Location 'desktop\v110final\Pastel_Payment_Assistant_v1.9'
+          git apply "$env:GITHUB_WORKSPACE\desktop\v1.10.patch"
+          Pop-Location
+          $src='desktop\v110final\Pastel_Payment_Assistant_v1.9\pastel_payment_assistant.pyw'
+          if((Get-FileHash $src -Algorithm SHA256).Hash.ToLower() -ne 'cd9ed5071b8f4781051b6beaf99c5b813a26ac7861c9f841b0ae9283666714c0'){throw 'v1.10 source verification failed'}
+          python -m py_compile $src
+          python -m pip install --upgrade pyinstaller
+          Push-Location 'desktop\v110final\Pastel_Payment_Assistant_v1.9'
+          python -m PyInstaller --noconfirm --clean --onedir --windowed --name "Pastel Payment Assistant v1.10" pastel_payment_assistant.pyw
+          Pop-Location
+          $app='desktop\v110final\Pastel_Payment_Assistant_v1.9\dist\Pastel Payment Assistant v1.10'
+          Copy-Item $app 'Pastel-Payment-Assistant-v1.10-Portable' -Recurse
+          @('Pastel Payment Assistant v1.10 - Portable Windows','','No Python installation is required.','Keep this entire folder together.','Run: Pastel Payment Assistant v1.10.exe','','v1.10 removes per-transaction contra allocation. The optional Cash Book bank GL applies at batch/import level.','If corporate endpoint security blocks it, ask IT/security to review or allow it rather than disabling security controls.') | Set-Content 'Pastel-Payment-Assistant-v1.10-Portable\README.txt'
+          Compress-Archive 'Pastel-Payment-Assistant-v1.10-Portable' 'Pastel-Payment-Assistant-v1.10-Portable.zip' -Force
+          $hash=(Get-FileHash 'Pastel-Payment-Assistant-v1.10-Portable.zip' -Algorithm SHA256).Hash.ToLower()
+          "SHA256=$hash" | Set-Content 'Pastel-Payment-Assistant-v1.10-Portable.sha256.txt'
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Pastel-Payment-Assistant-v1.10-Portable-Windows-Final
+          path: |
+            Pastel-Payment-Assistant-v1.10-Portable.zip
+            Pastel-Payment-Assistant-v1.10-Portable.sha256.txt
+
+      - name: Publish fresh release
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create desktop-v1.10-portable-final Pastel-Payment-Assistant-v1.10-Portable.zip Pastel-Payment-Assistant-v1.10-Portable.sha256.txt --title "Pastel Payment Assistant v1.10 - Portable Windows" --notes "Portable Windows v1.10. No Python installation required. Per-transaction contra allocation has been removed; the optional Cash Book bank GL applies at batch/import level."
+          if($LASTEXITCODE -ne 0){throw 'Release publication failed'}
+
+      - name: Record success
+        shell: powershell
+        run: |
+          $hash=(Get-FileHash 'Pastel-Payment-Assistant-v1.10-Portable.zip' -Algorithm SHA256).Hash.ToLower()
+          @('Pastel Payment Assistant v1.10 portable Windows FINAL release succeeded.',"Source commit: $env:GITHUB_SHA","Portable ZIP SHA256: $hash") | Set-Content 'desktop\BUILD_DESKTOP_V1.10_FINAL_SUCCESS.txt'
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add 'desktop/BUILD_DESKTOP_V1.10_FINAL_SUCCESS.txt'
+          git commit -m 'Mark v1.10 final portable release successful [skip ci]'
+          git push
