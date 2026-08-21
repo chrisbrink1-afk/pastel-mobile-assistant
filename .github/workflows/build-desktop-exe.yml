@@ -1,4 +1,4 @@
-name: Build Windows Desktop Portable
+name: Build Windows Desktop v1.10 Portable
 
 on:
   workflow_dispatch:
@@ -6,7 +6,7 @@ on:
     branches:
       - main
     paths:
-      - 'desktop/v1.9_parts/**'
+      - 'desktop/v1.10_patch.gz.b64'
       - '.github/workflows/build-desktop-exe.yml'
 
 permissions:
@@ -29,7 +29,7 @@ jobs:
         shell: powershell
         run: |
           $parts = Get-ChildItem 'desktop\v1.9_parts\part*.b64' | Sort-Object Name
-          if ($parts.Count -ne 5) { throw "Expected 5 source chunks, found $($parts.Count)" }
+          if ($parts.Count -ne 5) { throw "Expected 5 v1.9 source chunks, found $($parts.Count)" }
           $builder = New-Object System.Text.StringBuilder
           foreach ($part in $parts) {
             [void]$builder.Append((Get-Content $part.FullName -Raw).Trim())
@@ -38,10 +38,7 @@ jobs:
           [IO.File]::WriteAllBytes('desktop\Pastel_Payment_Assistant_v1.9.zip', $bytes)
           $hash = (Get-FileHash 'desktop\Pastel_Payment_Assistant_v1.9.zip' -Algorithm SHA256).Hash.ToLower()
           if ($hash -ne '1a34c916a907ab17d274a498118736a70a6f08764be31893e545e707edf501d7') {
-            throw "Source ZIP SHA-256 mismatch: $hash"
-          }
-          if ((Get-Item 'desktop\Pastel_Payment_Assistant_v1.9.zip').Length -ne 32599) {
-            throw "Source ZIP size mismatch"
+            throw "v1.9 source ZIP SHA-256 mismatch: $hash"
           }
 
       - name: Extract v1.9 source
@@ -50,7 +47,20 @@ jobs:
           New-Item -ItemType Directory -Force -Path 'desktop\build' | Out-Null
           Expand-Archive -Path 'desktop\Pastel_Payment_Assistant_v1.9.zip' -DestinationPath 'desktop\build' -Force
 
-      - name: Validate Python source
+      - name: Reconstruct and apply verified v1.10 patch
+        shell: powershell
+        run: |
+          python -c "import base64,gzip,pathlib,hashlib; src=pathlib.Path(r'desktop\v1.10_patch.gz.b64').read_text().strip(); data=gzip.decompress(base64.b64decode(src)); assert hashlib.sha256(data).hexdigest()=='8684e43ca3b90dc5b3688af6ea0098dabf6592ef65aa8a97f4ce46473f0da217'; pathlib.Path(r'desktop\v1.10.patch').write_bytes(data)"
+          Push-Location 'desktop\build\Pastel_Payment_Assistant_v1.9'
+          git apply "$env:GITHUB_WORKSPACE\desktop\v1.10.patch"
+          Pop-Location
+          $source = 'desktop\build\Pastel_Payment_Assistant_v1.9\pastel_payment_assistant.pyw'
+          $hash = (Get-FileHash $source -Algorithm SHA256).Hash.ToLower()
+          if ($hash -ne '20dce4b81f6165285a27e14d2c5b529ecdfd6f42d4bed849f44a2ee7717e819d') {
+            throw "Patched v1.10 source SHA-256 mismatch: $hash"
+          }
+
+      - name: Validate v1.10 Python source
         shell: powershell
         working-directory: desktop\build\Pastel_Payment_Assistant_v1.9
         run: python -m py_compile pastel_payment_assistant.pyw
@@ -63,35 +73,37 @@ jobs:
         shell: powershell
         working-directory: desktop\build\Pastel_Payment_Assistant_v1.9
         run: |
-          python -m PyInstaller --noconfirm --clean --onedir --windowed --name "Pastel Payment Assistant v1.9" pastel_payment_assistant.pyw
+          python -m PyInstaller --noconfirm --clean --onedir --windowed --name "Pastel Payment Assistant v1.10" pastel_payment_assistant.pyw
 
       - name: Package portable build
         shell: powershell
         run: |
-          $src = 'desktop\build\Pastel_Payment_Assistant_v1.9\dist\Pastel Payment Assistant v1.9'
-          if (!(Test-Path $src)) { throw 'Portable application folder was not created' }
-          Copy-Item $src 'Pastel-Payment-Assistant-v1.9-Portable' -Recurse
+          $src = 'desktop\build\Pastel_Payment_Assistant_v1.9\dist\Pastel Payment Assistant v1.10'
+          if (!(Test-Path $src)) { throw 'Portable v1.10 application folder was not created' }
+          Copy-Item $src 'Pastel-Payment-Assistant-v1.10-Portable' -Recurse
           @(
-            'Pastel Payment Assistant v1.9 - Portable Windows build',
+            'Pastel Payment Assistant v1.10 - Portable Windows build',
             '',
             'No Python installation is required.',
             'Keep all files in this folder together.',
-            'Run: Pastel Payment Assistant v1.9.exe',
+            'Run: Pastel Payment Assistant v1.10.exe',
+            '',
+            'v1.10 removes per-transaction contra allocation. The optional Cash Book bank GL setting maps to Pastel import column L for the batch.',
             '',
             'This folder-based build does not use PyInstaller one-file self-extraction.',
-            'If corporate endpoint security still blocks it, please ask your IT/security administrator to review/allow the application rather than disabling security controls.'
-          ) | Set-Content 'Pastel-Payment-Assistant-v1.9-Portable\README.txt'
-          Compress-Archive -Path 'Pastel-Payment-Assistant-v1.9-Portable' -DestinationPath 'Pastel-Payment-Assistant-v1.9-Portable.zip' -Force
-          $zipHash = (Get-FileHash 'Pastel-Payment-Assistant-v1.9-Portable.zip' -Algorithm SHA256).Hash.ToLower()
-          "SHA256=$zipHash" | Set-Content 'Pastel-Payment-Assistant-v1.9-Portable.sha256.txt'
+            'If corporate endpoint security blocks it, ask your IT/security administrator to review/allow the application rather than disabling security controls.'
+          ) | Set-Content 'Pastel-Payment-Assistant-v1.10-Portable\README.txt'
+          Compress-Archive -Path 'Pastel-Payment-Assistant-v1.10-Portable' -DestinationPath 'Pastel-Payment-Assistant-v1.10-Portable.zip' -Force
+          $zipHash = (Get-FileHash 'Pastel-Payment-Assistant-v1.10-Portable.zip' -Algorithm SHA256).Hash.ToLower()
+          "SHA256=$zipHash" | Set-Content 'Pastel-Payment-Assistant-v1.10-Portable.sha256.txt'
 
       - name: Upload portable artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Pastel-Payment-Assistant-v1.9-Portable-Windows
+          name: Pastel-Payment-Assistant-v1.10-Portable-Windows
           path: |
-            Pastel-Payment-Assistant-v1.9-Portable.zip
-            Pastel-Payment-Assistant-v1.9-Portable.sha256.txt
+            Pastel-Payment-Assistant-v1.10-Portable.zip
+            Pastel-Payment-Assistant-v1.10-Portable.sha256.txt
 
       - name: Publish portable Windows release
         if: github.ref == 'refs/heads/main'
@@ -99,25 +111,25 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release delete desktop-v1.9-portable --cleanup-tag -y || true
-          gh release create desktop-v1.9-portable \
-            Pastel-Payment-Assistant-v1.9-Portable.zip \
-            Pastel-Payment-Assistant-v1.9-Portable.sha256.txt \
-            --title "Pastel Payment Assistant v1.9 - Portable Windows" \
-            --notes "Folder-based portable Windows build. No Python installation required. This avoids PyInstaller one-file self-extraction. If corporate endpoint security still blocks it, ask your IT/security administrator to review or allow the application; do not disable security controls."
+          gh release delete desktop-v1.10-portable --cleanup-tag -y || true
+          gh release create desktop-v1.10-portable \
+            Pastel-Payment-Assistant-v1.10-Portable.zip \
+            Pastel-Payment-Assistant-v1.10-Portable.sha256.txt \
+            --title "Pastel Payment Assistant v1.10 - Portable Windows" \
+            --notes "Portable Windows build of v1.10. No Python installation required. Per-transaction contra allocation has been removed; the optional Cash Book bank GL maps to Pastel import column L for the batch. If corporate endpoint security blocks the app, ask IT/security to review or allow it rather than disabling security controls."
 
       - name: Mark successful portable build
         if: github.ref == 'refs/heads/main'
         shell: powershell
         run: |
-          $zipHash = (Get-FileHash 'Pastel-Payment-Assistant-v1.9-Portable.zip' -Algorithm SHA256).Hash.ToLower()
+          $zipHash = (Get-FileHash 'Pastel-Payment-Assistant-v1.10-Portable.zip' -Algorithm SHA256).Hash.ToLower()
           @(
-            'Pastel Payment Assistant v1.9 portable Windows build succeeded.',
+            'Pastel Payment Assistant v1.10 portable Windows build succeeded.',
             "Source commit: $env:GITHUB_SHA",
             "Portable ZIP SHA256: $zipHash"
-          ) | Set-Content 'desktop\BUILD_DESKTOP_V1.9_PORTABLE_SUCCESS.txt'
+          ) | Set-Content 'desktop\BUILD_DESKTOP_V1.10_PORTABLE_SUCCESS.txt'
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add 'desktop/BUILD_DESKTOP_V1.9_PORTABLE_SUCCESS.txt'
-          git commit -m 'Mark v1.9 portable build successful [skip ci]'
+          git add 'desktop/BUILD_DESKTOP_V1.10_PORTABLE_SUCCESS.txt'
+          git commit -m 'Mark v1.10 portable build successful [skip ci]'
           git push
