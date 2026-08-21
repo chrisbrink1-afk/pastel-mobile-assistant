@@ -1,0 +1,3 @@
+Pastel Payment Assistant v1.10 portable Windows FINAL release succeeded.
+Source commit: acb9e25dcf2be48c8649182287c14e43717aaf0a
+Portable ZIP SHA256: 4291ffc00ea21a85f8be2f8c550131899db7eea5425eaf69339b6b5aaaa722ed
