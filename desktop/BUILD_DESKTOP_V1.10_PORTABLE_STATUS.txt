@@ -1,0 +1,3 @@
+Pastel Payment Assistant v1.10 portable Windows build status
+Source commit: a8a0025f9a82f8e7d1a7999b3fcb9dbc1fa91e54
+Build outcome: failure
