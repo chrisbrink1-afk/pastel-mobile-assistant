@@ -1,3 +1,4 @@
 Pastel Payment Assistant v1.10 portable Windows build status
-Source commit: a8a0025f9a82f8e7d1a7999b3fcb9dbc1fa91e54
+Source commit: a17bb41c39e77ffd010a0f2a4c734ad55e9f1874
 Build outcome: failure
+ERROR: PATCH: v1.10 source hash mismatch cd9ed5071b8f4781051b6beaf99c5b813a26ac7861c9f841b0ae9283666714c0
