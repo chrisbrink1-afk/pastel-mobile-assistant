@@ -1,4 +1,4 @@
-name: Build Windows Desktop EXE
+name: Build Windows Desktop Portable
 
 on:
   workflow_dispatch:
@@ -13,7 +13,7 @@ permissions:
   contents: write
 
 jobs:
-  build-windows-exe:
+  build-windows-portable:
     runs-on: windows-latest
 
     steps:
@@ -59,53 +59,65 @@ jobs:
         shell: powershell
         run: python -m pip install --upgrade pip pyinstaller
 
-      - name: Build standalone Windows EXE
+      - name: Build portable Windows folder
         shell: powershell
         working-directory: desktop\build\Pastel_Payment_Assistant_v1.9
         run: |
-          python -m PyInstaller --noconfirm --clean --onefile --windowed --name "Pastel Payment Assistant v1.9" pastel_payment_assistant.pyw
+          python -m PyInstaller --noconfirm --clean --onedir --windowed --name "Pastel Payment Assistant v1.9" pastel_payment_assistant.pyw
 
-      - name: Prepare EXE
+      - name: Package portable build
         shell: powershell
         run: |
-          Copy-Item 'desktop\build\Pastel_Payment_Assistant_v1.9\dist\Pastel Payment Assistant v1.9.exe' 'Pastel-Payment-Assistant-v1.9.exe'
-          if (!(Test-Path 'Pastel-Payment-Assistant-v1.9.exe')) { throw 'EXE was not created' }
-          $exeHash = (Get-FileHash 'Pastel-Payment-Assistant-v1.9.exe' -Algorithm SHA256).Hash.ToLower()
-          "SHA256=$exeHash" | Set-Content 'Pastel-Payment-Assistant-v1.9.sha256.txt'
+          $src = 'desktop\build\Pastel_Payment_Assistant_v1.9\dist\Pastel Payment Assistant v1.9'
+          if (!(Test-Path $src)) { throw 'Portable application folder was not created' }
+          Copy-Item $src 'Pastel-Payment-Assistant-v1.9-Portable' -Recurse
+          @(
+            'Pastel Payment Assistant v1.9 - Portable Windows build',
+            '',
+            'No Python installation is required.',
+            'Keep all files in this folder together.',
+            'Run: Pastel Payment Assistant v1.9.exe',
+            '',
+            'This folder-based build does not use PyInstaller one-file self-extraction.',
+            'If corporate endpoint security still blocks it, please ask your IT/security administrator to review/allow the application rather than disabling security controls.'
+          ) | Set-Content 'Pastel-Payment-Assistant-v1.9-Portable\README.txt'
+          Compress-Archive -Path 'Pastel-Payment-Assistant-v1.9-Portable' -DestinationPath 'Pastel-Payment-Assistant-v1.9-Portable.zip' -Force
+          $zipHash = (Get-FileHash 'Pastel-Payment-Assistant-v1.9-Portable.zip' -Algorithm SHA256).Hash.ToLower()
+          "SHA256=$zipHash" | Set-Content 'Pastel-Payment-Assistant-v1.9-Portable.sha256.txt'
 
-      - name: Upload EXE artifact
+      - name: Upload portable artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Pastel-Payment-Assistant-v1.9-Windows
+          name: Pastel-Payment-Assistant-v1.9-Portable-Windows
           path: |
-            Pastel-Payment-Assistant-v1.9.exe
-            Pastel-Payment-Assistant-v1.9.sha256.txt
+            Pastel-Payment-Assistant-v1.9-Portable.zip
+            Pastel-Payment-Assistant-v1.9-Portable.sha256.txt
 
-      - name: Publish Windows EXE release
+      - name: Publish portable Windows release
         if: github.ref == 'refs/heads/main'
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release delete desktop-v1.9 --cleanup-tag -y || true
-          gh release create desktop-v1.9 \
-            Pastel-Payment-Assistant-v1.9.exe \
-            Pastel-Payment-Assistant-v1.9.sha256.txt \
-            --title "Pastel Payment Assistant v1.9 - Windows" \
-            --notes "Standalone Windows build. No Python installation required. Review all Sage Pastel import files before Update/Process."
+          gh release delete desktop-v1.9-portable --cleanup-tag -y || true
+          gh release create desktop-v1.9-portable \
+            Pastel-Payment-Assistant-v1.9-Portable.zip \
+            Pastel-Payment-Assistant-v1.9-Portable.sha256.txt \
+            --title "Pastel Payment Assistant v1.9 - Portable Windows" \
+            --notes "Folder-based portable Windows build. No Python installation required. This avoids PyInstaller one-file self-extraction. If corporate endpoint security still blocks it, ask your IT/security administrator to review or allow the application; do not disable security controls."
 
-      - name: Mark successful desktop build
+      - name: Mark successful portable build
         if: github.ref == 'refs/heads/main'
         shell: powershell
         run: |
-          $exeHash = (Get-FileHash 'Pastel-Payment-Assistant-v1.9.exe' -Algorithm SHA256).Hash.ToLower()
+          $zipHash = (Get-FileHash 'Pastel-Payment-Assistant-v1.9-Portable.zip' -Algorithm SHA256).Hash.ToLower()
           @(
-            'Pastel Payment Assistant v1.9 Windows EXE build succeeded.',
+            'Pastel Payment Assistant v1.9 portable Windows build succeeded.',
             "Source commit: $env:GITHUB_SHA",
-            "EXE SHA256: $exeHash"
-          ) | Set-Content 'desktop\BUILD_DESKTOP_V1.9_SUCCESS.txt'
+            "Portable ZIP SHA256: $zipHash"
+          ) | Set-Content 'desktop\BUILD_DESKTOP_V1.9_PORTABLE_SUCCESS.txt'
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add 'desktop/BUILD_DESKTOP_V1.9_SUCCESS.txt'
-          git commit -m 'Mark v1.9 Windows EXE build successful [skip ci]'
+          git add 'desktop/BUILD_DESKTOP_V1.9_PORTABLE_SUCCESS.txt'
+          git commit -m 'Mark v1.9 portable build successful [skip ci]'
           git push
