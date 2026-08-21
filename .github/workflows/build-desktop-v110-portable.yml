@@ -22,42 +22,64 @@ jobs:
           python-version: '3.12'
 
       - name: Reconstruct v1.9 source
+        id: source
         shell: powershell
         run: |
-          $ErrorActionPreference = 'Stop'
-          $parts = Get-ChildItem 'desktop\v1.9_parts\part*.b64' | Sort-Object Name
-          if ($parts.Count -ne 5) { throw "Expected 5 source chunks, found $($parts.Count)" }
-          $text = [System.Text.StringBuilder]::new()
-          foreach ($p in $parts) { [void]$text.Append((Get-Content $p.FullName -Raw).Trim()) }
+          $ErrorActionPreference='Stop'
+          $parts=Get-ChildItem 'desktop\v1.9_parts\part*.b64' | Sort-Object Name
+          if($parts.Count -ne 5){throw "Expected 5 source chunks, found $($parts.Count)"}
+          $text=[System.Text.StringBuilder]::new()
+          foreach($p in $parts){[void]$text.Append((Get-Content $p.FullName -Raw).Trim())}
           [IO.File]::WriteAllBytes('desktop\v1.9.zip',[Convert]::FromBase64String($text.ToString()))
           $hash=(Get-FileHash 'desktop\v1.9.zip' -Algorithm SHA256).Hash.ToLower()
-          if ($hash -ne '1a34c916a907ab17d274a498118736a70a6f08764be31893e545e707edf501d7') { throw "v1.9 source hash mismatch: $hash" }
+          if($hash -ne '1a34c916a907ab17d274a498118736a70a6f08764be31893e545e707edf501d7'){throw "v1.9 source hash mismatch: $hash"}
           New-Item -ItemType Directory -Force 'desktop\v110build' | Out-Null
           Expand-Archive 'desktop\v1.9.zip' 'desktop\v110build' -Force
 
       - name: Apply verified v1.10 changes
+        id: patch
         shell: powershell
         run: |
-          $ErrorActionPreference = 'Stop'
+          $ErrorActionPreference='Stop'
           python -c "import base64,gzip,pathlib,hashlib; b=gzip.decompress(base64.b64decode(pathlib.Path(r'desktop\v1.10_patch.gz.b64').read_text().strip())); assert hashlib.sha256(b).hexdigest()=='8684e43ca3b90dc5b3688af6ea0098dabf6592ef65aa8a97f4ce46473f0da217'; pathlib.Path(r'desktop\v1.10.patch').write_bytes(b)"
+          if($LASTEXITCODE -ne 0){throw 'Could not reconstruct verified v1.10 patch'}
           Push-Location 'desktop\v110build\Pastel_Payment_Assistant_v1.9'
           git apply "$env:GITHUB_WORKSPACE\desktop\v1.10.patch"
+          if($LASTEXITCODE -ne 0){Pop-Location;throw 'git apply failed'}
           Pop-Location
           $src='desktop\v110build\Pastel_Payment_Assistant_v1.9\pastel_payment_assistant.pyw'
           $hash=(Get-FileHash $src -Algorithm SHA256).Hash.ToLower()
-          if ($hash -ne 'cd9ed5071b8f4781051b6beaf99c5b813a26ac7861c9f841b0ae9283666714c0') { throw "v1.10 Windows source hash mismatch: $hash" }
-          python -m py_compile $src
+          if($hash -ne 'cd9ed5071b8f4781051b6beaf99c5b813a26ac7861c9f841b0ae9283666714c0'){throw "v1.10 Windows source hash mismatch: $hash"}
 
-      - name: Build portable app
+      - name: Validate source
+        id: validate
         shell: powershell
         run: |
-          $ErrorActionPreference = 'Stop'
+          python -m py_compile 'desktop\v110build\Pastel_Payment_Assistant_v1.9\pastel_payment_assistant.pyw'
+          if($LASTEXITCODE -ne 0){throw 'Python source validation failed'}
+
+      - name: Install PyInstaller
+        id: install
+        shell: powershell
+        run: |
           python -m pip install --upgrade pyinstaller
-          Push-Location 'desktop\v110build\Pastel_Payment_Assistant_v1.9'
+          if($LASTEXITCODE -ne 0){throw 'PyInstaller installation failed'}
+
+      - name: Build portable folder
+        id: pyinstaller
+        shell: powershell
+        working-directory: desktop\v110build\Pastel_Payment_Assistant_v1.9
+        run: |
           python -m PyInstaller --noconfirm --clean --onedir --windowed --name "Pastel Payment Assistant v1.10" pastel_payment_assistant.pyw
-          Pop-Location
+          if($LASTEXITCODE -ne 0){throw 'PyInstaller build failed'}
+
+      - name: Package portable ZIP
+        id: package
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
           $src='desktop\v110build\Pastel_Payment_Assistant_v1.9\dist\Pastel Payment Assistant v1.10'
-          if (!(Test-Path $src)) { throw 'Portable application folder was not created' }
+          if(!(Test-Path $src)){throw 'Portable application folder was not created'}
           Copy-Item $src 'Pastel-Payment-Assistant-v1.10-Portable' -Recurse
           @(
             'Pastel Payment Assistant v1.10 - Portable Windows',
@@ -75,6 +97,7 @@ jobs:
           "SHA256=$hash" | Set-Content 'Pastel-Payment-Assistant-v1.10-Portable.sha256.txt'
 
       - name: Upload artifact
+        id: upload
         uses: actions/upload-artifact@v4
         with:
           name: Pastel-Payment-Assistant-v1.10-Portable-Windows
@@ -83,25 +106,38 @@ jobs:
             Pastel-Payment-Assistant-v1.10-Portable.sha256.txt
 
       - name: Publish release
+        id: release
         shell: powershell
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release delete desktop-v1.10-portable --cleanup-tag -y 2>$null
           gh release create desktop-v1.10-portable Pastel-Payment-Assistant-v1.10-Portable.zip Pastel-Payment-Assistant-v1.10-Portable.sha256.txt --title "Pastel Payment Assistant v1.10 - Portable Windows" --notes "Portable Windows v1.10. No Python installation required. Per-transaction contra allocation is removed; the optional Cash Book bank GL applies at batch/import level."
-          if ($LASTEXITCODE -ne 0) { throw 'GitHub release creation failed' }
+          if($LASTEXITCODE -ne 0){throw 'GitHub release creation failed'}
 
-      - name: Record success
+      - name: Record build status
+        if: always()
         shell: powershell
         run: |
-          $hash=(Get-FileHash 'Pastel-Payment-Assistant-v1.10-Portable.zip' -Algorithm SHA256).Hash.ToLower()
-          @(
-            'Pastel Payment Assistant v1.10 portable Windows build succeeded.',
+          $lines=@(
+            'Pastel Payment Assistant v1.10 portable Windows build status',
             "Source commit: $env:GITHUB_SHA",
-            "Portable ZIP SHA256: $hash"
-          ) | Set-Content 'desktop\BUILD_DESKTOP_V1.10_PORTABLE_SUCCESS.txt'
+            'source=${{ steps.source.outcome }}',
+            'patch=${{ steps.patch.outcome }}',
+            'validate=${{ steps.validate.outcome }}',
+            'install=${{ steps.install.outcome }}',
+            'pyinstaller=${{ steps.pyinstaller.outcome }}',
+            'package=${{ steps.package.outcome }}',
+            'upload=${{ steps.upload.outcome }}',
+            'release=${{ steps.release.outcome }}'
+          )
+          if(Test-Path 'Pastel-Payment-Assistant-v1.10-Portable.zip'){
+            $hash=(Get-FileHash 'Pastel-Payment-Assistant-v1.10-Portable.zip' -Algorithm SHA256).Hash.ToLower()
+            $lines += "Portable ZIP SHA256: $hash"
+          }
+          $lines | Set-Content 'desktop\BUILD_DESKTOP_V1.10_PORTABLE_STATUS2.txt'
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add 'desktop/BUILD_DESKTOP_V1.10_PORTABLE_SUCCESS.txt'
-          git commit -m 'Mark v1.10 portable build successful [skip ci]'
-          git push
+          git add 'desktop/BUILD_DESKTOP_V1.10_PORTABLE_STATUS2.txt'
+          git commit -m 'Record v1.10 portable staged build status [skip ci]'
+          if($LASTEXITCODE -eq 0){git push}
