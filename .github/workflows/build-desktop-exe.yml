@@ -1,0 +1,70 @@
+name: Build Windows Desktop EXE
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - 'desktop/Pastel_Payment_Assistant_v1.9.zip'
+      - '.github/workflows/build-desktop-exe.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows-exe:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Extract v1.9 source
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Force -Path desktop\build | Out-Null
+          Expand-Archive -Path desktop\Pastel_Payment_Assistant_v1.9.zip -DestinationPath desktop\build -Force
+
+      - name: Validate Python source
+        shell: powershell
+        working-directory: desktop\build\Pastel_Payment_Assistant_v1.9
+        run: python -m py_compile pastel_payment_assistant.pyw
+
+      - name: Install PyInstaller
+        shell: powershell
+        run: python -m pip install --upgrade pip pyinstaller
+
+      - name: Build standalone Windows EXE
+        shell: powershell
+        working-directory: desktop\build\Pastel_Payment_Assistant_v1.9
+        run: |
+          python -m PyInstaller --noconfirm --clean --onefile --windowed --name "Pastel Payment Assistant v1.9" pastel_payment_assistant.pyw
+
+      - name: Prepare EXE
+        shell: powershell
+        run: |
+          Copy-Item "desktop\build\Pastel_Payment_Assistant_v1.9\dist\Pastel Payment Assistant v1.9.exe" "Pastel-Payment-Assistant-v1.9.exe"
+          if (!(Test-Path "Pastel-Payment-Assistant-v1.9.exe")) { throw "EXE was not created" }
+
+      - name: Upload EXE artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Pastel-Payment-Assistant-v1.9-Windows
+          path: Pastel-Payment-Assistant-v1.9.exe
+
+      - name: Publish Windows EXE release
+        if: github.ref == 'refs/heads/main'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete desktop-v1.9 --cleanup-tag -y || true
+          gh release create desktop-v1.9 Pastel-Payment-Assistant-v1.9.exe \
+            --title "Pastel Payment Assistant v1.9 - Windows" \
+            --notes "Standalone Windows build. No Python installation required. Review all Sage Pastel import files before Update/Process."
