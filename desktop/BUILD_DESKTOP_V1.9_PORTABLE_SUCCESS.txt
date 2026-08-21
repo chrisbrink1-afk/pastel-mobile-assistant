@@ -1,0 +1,3 @@
+Pastel Payment Assistant v1.9 portable Windows build succeeded.
+Source commit: 3b738f5007b7ce2e9d3c6d6cfa2054d0634f1a4d
+Portable ZIP SHA256: b3b823ee90dbc68af5fe87711a9357d8c0585d57256b67f8459b4dfa304429c4
