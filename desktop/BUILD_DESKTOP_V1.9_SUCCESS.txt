@@ -1,0 +1,3 @@
+Pastel Payment Assistant v1.9 Windows EXE build succeeded.
+Source commit: f755c20a5e479b9a256ffd7e9ddf2aba64f35519
+EXE SHA256: a8959eb9359f0406b0ddd58091f016be0404361eb79f8d29487ba1f4adce8a6f
