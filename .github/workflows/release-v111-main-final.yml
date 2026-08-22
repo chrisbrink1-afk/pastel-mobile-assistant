@@ -1,0 +1,147 @@
+name: Publish Pastel Payment Assistant v1.11 Portable Final From Main
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/release-v111-main-final.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Fetch verified v1.11 source
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          git fetch origin feature/v1.11-allocation-controls
+          git show origin/feature/v1.11-allocation-controls:desktop/v1.11_final.pyw | Out-File -FilePath 'desktop\v1.11_final.pyw' -Encoding utf8
+          if(!(Test-Path 'desktop\v1.11_final.pyw')){throw 'Could not fetch v1.11 final source'}
+          $text=Get-Content 'desktop\v1.11_final.pyw' -Raw
+          if(!$text.Contains('APP_VERSION = "1.11.0"')){throw 'Wrong v1.11 source version'}
+
+      - name: Validate v1.11 and v1.10 rules compatibility
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $src='desktop\v1.11_final.pyw'
+          python -m py_compile $src
+          if($LASTEXITCODE -ne 0){throw 'v1.11 compile failed'}
+          python $src --self-test
+          if($LASTEXITCODE -ne 0){throw 'v1.11 self-test failed'}
+          @'
+          import csv
+          import io
+          import runpy
+          import tempfile
+          from pathlib import Path
+          ns=runpy.run_path(r'desktop\v1.11_final.pyw',run_name='compat')
+          Rule=ns['Rule']; Store=ns['Store']
+          old='''direction,name,mode,pattern,account,vat,tax_type,pastel_ref,priority,enabled\nPAYMENT,HOLLARD 0923,SMART,HOLLARD 0923,7100002,1,1,0923,100,1\nRECEIPT,CLIENT ABC,SMART,CLIENT ABC 1234,4000001,0,0,1234,90,1\n'''
+          with tempfile.TemporaryDirectory() as td:
+              st=Store(Path(td)/'rules.db')
+              for row in csv.DictReader(io.StringIO(old)):
+                  r=Rule(None,row['name'],row['mode'],row['pattern'],row['account'],row['vat']=='1',int(row['tax_type']),row['pastel_ref'],int(row['priority']),row['enabled']=='1',row['direction'],row.get('description',''),row.get('amount_operator',''),row.get('amount_threshold',''),row.get('amount_account',''))
+                  st.save_rule(r)
+              got=st.all_rules()
+              assert len(got)==2
+              p=next(x for x in got if x.direction=='PAYMENT')
+              r=next(x for x in got if x.direction=='RECEIPT')
+              assert (p.account,p.vat,p.tax_type,p.pastel_ref)==('7100002',True,1,'0923')
+              assert (r.account,r.vat,r.pastel_ref)==('4000001',False,'1234')
+              assert p.description=='' and p.amount_operator=='' and p.amount_account==''
+              st.conn.close()
+          print('v1.10 rules backup compatibility passed')
+          '@ | python -
+          if($LASTEXITCODE -ne 0){throw 'v1.10 rules compatibility test failed'}
+
+      - name: Build portable v1.11 like v1.10
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          python -m pip install --upgrade pyinstaller
+          if($LASTEXITCODE -ne 0){throw 'PyInstaller installation failed'}
+          New-Item -ItemType Directory -Force 'desktop\v111mainfinal' | Out-Null
+          Copy-Item 'desktop\v1.11_final.pyw' 'desktop\v111mainfinal\pastel_payment_assistant.pyw' -Force
+          Push-Location 'desktop\v111mainfinal'
+          python -m PyInstaller --noconfirm --clean --onedir --windowed --name "Pastel Payment Assistant v1.11" pastel_payment_assistant.pyw
+          $code=$LASTEXITCODE
+          Pop-Location
+          if($code -ne 0){throw 'PyInstaller build failed'}
+          $app='desktop\v111mainfinal\dist\Pastel Payment Assistant v1.11'
+          if(!(Test-Path $app)){throw 'Portable app folder missing'}
+          Copy-Item $app 'Pastel-Payment-Assistant-v1.11-Portable' -Recurse
+          @(
+            'Pastel Payment Assistant v1.11 - Portable Windows',
+            '',
+            'No Python installation is required.',
+            'Keep this entire folder together.',
+            'Run: Pastel Payment Assistant v1.11.exe',
+            '',
+            'New in v1.11:',
+            '- Custom Pastel descriptions.',
+            '- Optional amount-based GL allocation rules.',
+            '- Select Auto-Allocated.',
+            '- Correct false auto-allocations and optionally update the saved rule.',
+            '- v1.10 rules backup CSV files import directly into v1.11.',
+            '',
+            'Portable packaging matches v1.10: PyInstaller --onedir --windowed. No installer is required.',
+            'The Cash Book bank GL remains the batch-level Pastel import column L setting.',
+            '',
+            'If corporate endpoint security blocks the application, ask IT/security to review or allow it rather than disabling security controls.'
+          ) | Set-Content 'Pastel-Payment-Assistant-v1.11-Portable\README.txt'
+          Compress-Archive 'Pastel-Payment-Assistant-v1.11-Portable' 'Pastel-Payment-Assistant-v1.11-Portable.zip' -Force
+          $hash=(Get-FileHash 'Pastel-Payment-Assistant-v1.11-Portable.zip' -Algorithm SHA256).Hash.ToLower()
+          "SHA256=$hash" | Set-Content 'Pastel-Payment-Assistant-v1.11-Portable.sha256.txt'
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Pastel-Payment-Assistant-v1.11-Portable-Windows-Final
+          path: |
+            Pastel-Payment-Assistant-v1.11-Portable.zip
+            Pastel-Payment-Assistant-v1.11-Portable.sha256.txt
+
+      - name: Publish clean v1.11 release
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop'
+          gh release view desktop-v1.11-portable-final *> $null
+          if($LASTEXITCODE -eq 0){
+            gh release delete desktop-v1.11-portable-final --cleanup-tag -y
+            if($LASTEXITCODE -ne 0){throw 'Could not remove previous v1.11 final release'}
+          }
+          gh release create desktop-v1.11-portable-final Pastel-Payment-Assistant-v1.11-Portable.zip Pastel-Payment-Assistant-v1.11-Portable.sha256.txt --title "Pastel Payment Assistant v1.11 - Portable Windows" --notes "Portable Windows v1.11 built with the same PyInstaller onedir/windowed packaging method as the working v1.10 portable build. Adds transaction descriptions, optional amount-based allocation, Select Auto-Allocated, correction of false auto-allocations, and verified v1.10 rules-backup compatibility."
+          if($LASTEXITCODE -ne 0){throw 'Release publication failed'}
+
+      - name: Record successful release
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $hash=(Get-FileHash 'Pastel-Payment-Assistant-v1.11-Portable.zip' -Algorithm SHA256).Hash.ToLower()
+          @(
+            'Pastel Payment Assistant v1.11 portable Windows FINAL release succeeded.',
+            "Source commit: $env:GITHUB_SHA",
+            "Portable ZIP SHA256: $hash",
+            'v1.10 rules backup compatibility: passed',
+            'Portable packaging matches v1.10: PyInstaller --onedir --windowed'
+          ) | Set-Content 'desktop\BUILD_DESKTOP_V1.11_MAIN_FINAL_SUCCESS.txt'
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add 'desktop/BUILD_DESKTOP_V1.11_MAIN_FINAL_SUCCESS.txt'
+          git commit -m 'Mark v1.11 main final portable release successful [skip ci]'
+          git push
