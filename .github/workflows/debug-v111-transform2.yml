@@ -1,0 +1,63 @@
+name: Debug v1.11 transform retry
+
+on:
+  push:
+    branches:
+      - feature/v1.11-allocation-controls
+    paths:
+      - '.github/workflows/debug-v111-transform2.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  debug:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Relax duplicate-safe transform anchors
+        shell: powershell
+        run: |
+          @'
+          from pathlib import Path
+          p = Path(r'desktop\v1.11_transform.py')
+          s = p.read_text(encoding='utf-8')
+          old = '''def replace_once(text: str, old: str, new: str, label: str) -> str:
+              count = text.count(old)
+              if count != 1:
+                  raise RuntimeError(f"{label}: expected exactly one match, found {count}")
+              return text.replace(old, new, 1)
+          '''
+          new = '''def replace_once(text: str, old: str, new: str, label: str) -> str:
+              count = text.count(old)
+              if count < 1:
+                  raise RuntimeError(f"{label}: expected at least one match, found {count}")
+              return text.replace(old, new, 1)
+          '''
+          if old not in s:
+              raise SystemExit('replace_once helper anchor not found')
+          p.write_text(s.replace(old, new, 1), encoding='utf-8')
+          '@ | Set-Content 'desktop\relax_v111.py' -Encoding utf8
+          python 'desktop\relax_v111.py'
+          if($LASTEXITCODE -ne 0){throw 'Could not relax transformer'}
+      - name: Run transformer and capture output
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Continue'
+          Copy-Item 'desktop\v1.10_source\pastel_payment_assistant.pyw' 'desktop\v1.11_candidate.pyw' -Force
+          python 'desktop\v1.11_transform.py' 'desktop\v1.11_candidate.pyw' *>&1 | Tee-Object -FilePath 'desktop\V111_TRANSFORM_LOG2.txt'
+          "transform_exit_code=$LASTEXITCODE" | Add-Content 'desktop\V111_TRANSFORM_LOG2.txt'
+          if($LASTEXITCODE -eq 0){
+            python -m py_compile 'desktop\v1.11_candidate.pyw' *>&1 | Tee-Object -FilePath 'desktop\V111_COMPILE_LOG2.txt'
+            "compile_exit_code=$LASTEXITCODE" | Add-Content 'desktop\V111_COMPILE_LOG2.txt'
+          } else {
+            'compile skipped' | Set-Content 'desktop\V111_COMPILE_LOG2.txt'
+          }
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add 'desktop/V111_TRANSFORM_LOG2.txt' 'desktop/V111_COMPILE_LOG2.txt' 'desktop/v1.11_candidate.pyw'
+          git commit -m 'Capture v1.11 transform retry diagnostics [skip ci]'
+          if($LASTEXITCODE -eq 0){git push}
