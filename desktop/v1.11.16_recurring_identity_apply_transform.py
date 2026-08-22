@@ -40,3 +40,5 @@ def main(path: str) -> None:
 
 if __name__ == "__main__":
     main(sys.argv[1])
+
+# retry trigger after aligning with the current amount-review recurring flow
