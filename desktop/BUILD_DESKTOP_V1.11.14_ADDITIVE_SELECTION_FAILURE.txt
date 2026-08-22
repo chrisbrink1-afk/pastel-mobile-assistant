@@ -1,0 +1,5 @@
+Pastel Payment Assistant v1.11.14 package failed.
+run=32594638441 attempt=1
+source=failure
+build=skipped
+commit=skipped
