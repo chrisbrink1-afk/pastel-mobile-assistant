@@ -1,0 +1,5 @@
+Pastel Payment Assistant v1.11.2 global-safe portable package succeeded.
+Source commit: fa3f82a94d0cef3f59ffb4bc91ae6d7fde483876
+Portable ZIP SHA256: b05c121c32e7eccf1a25a957afdf1ecffe67c2672526d8682dc82c9a76c6cdfe
+Packaging: PyInstaller --onedir --windowed (same method as v1.10)
+Global strict identity matching tests for payments/receipts and all rule modes: passed
