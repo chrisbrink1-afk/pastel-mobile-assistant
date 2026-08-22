@@ -1,0 +1,33 @@
+name: Debug v1.11 Self Test
+
+on:
+  push:
+    branches:
+      - feature/v1.11-allocation-controls
+    paths:
+      - '.github/workflows/debug-v111-selftest.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  debug:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Run compile and self-test
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Continue'
+          python -m py_compile 'desktop\v1.11_candidate.pyw' *>&1 | Tee-Object -FilePath 'desktop\V111_DEBUG_COMPILE.txt'
+          "compile_exit_code=$LASTEXITCODE" | Add-Content 'desktop\V111_DEBUG_COMPILE.txt'
+          python 'desktop\v1.11_candidate.pyw' --self-test *>&1 | Tee-Object -FilePath 'desktop\V111_DEBUG_SELFTEST.txt'
+          "selftest_exit_code=$LASTEXITCODE" | Add-Content 'desktop\V111_DEBUG_SELFTEST.txt'
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add 'desktop/V111_DEBUG_COMPILE.txt' 'desktop/V111_DEBUG_SELFTEST.txt'
+          git commit -m 'Capture v1.11 self-test diagnostics [skip ci]'
+          if($LASTEXITCODE -eq 0){git push}
