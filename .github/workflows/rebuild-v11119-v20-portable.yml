@@ -1,0 +1,234 @@
+name: Rebuild Pastel Payment Assistant v1.11.19 Personal and v2.0 Clean
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/rebuild-v11119-v20-portable.yml'
+      - 'desktop/v1.11.19_autosave_session_transform.py'
+      - 'desktop/v2.0_clean_feedback_transform.py'
+  schedule:
+    - cron: '*/5 * * * *'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: pastel-v11119-v20-rebuild
+  cancel-in-progress: false
+
+jobs:
+  rebuild:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Prepare and test v1.11.19 Personal source
+        id: source_personal
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          git fetch origin feature/v1.11-allocation-controls
+          git show origin/feature/v1.11-allocation-controls:desktop/v1.11_final.pyw | Out-File -FilePath 'desktop\v1.11.19_release.pyw' -Encoding utf8
+          python 'desktop\v1.11.1_strict_match_transform.py' 'desktop\v1.11.19_release.pyw'; if($LASTEXITCODE -ne 0){throw 'v1.11.1 transform failed'}
+          python 'desktop\v1.11.2_global_match_transform.py' 'desktop\v1.11.19_release.pyw'; if($LASTEXITCODE -ne 0){throw 'v1.11.2 transform failed'}
+          python 'desktop\v1.11.3_amount_description_transform.py' 'desktop\v1.11.19_release.pyw'; if($LASTEXITCODE -ne 0){throw 'v1.11.3 transform failed'}
+          python 'desktop\v1.11.4_amount_review_transform.py' 'desktop\v1.11.19_release.pyw'; if($LASTEXITCODE -ne 0){throw 'v1.11.4 transform failed'}
+          python 'desktop\v1.11.5_sequential_reference_transform.py' 'desktop\v1.11.19_release.pyw'; if($LASTEXITCODE -ne 0){throw 'v1.11.5 transform failed'}
+          python 'desktop\v1.11.6_profiles_transform.py' 'desktop\v1.11.19_release.pyw'; if($LASTEXITCODE -ne 0){throw 'v1.11.6 transform failed'}
+          python 'desktop\v1.11.7_multi_review_assignment_transform.py' 'desktop\v1.11.19_release.pyw'; if($LASTEXITCODE -ne 0){throw 'v1.11.7 transform failed'}
+          python 'desktop\v1.11.8_pre_remove_main_review_method.py' 'desktop\v1.11.19_release.pyw'; if($LASTEXITCODE -ne 0){throw 'v1.11.8 pre-transform failed'}
+          python 'desktop\v1.11.8_rule_dialog_review_table_transform.py' 'desktop\v1.11.19_release.pyw'; if($LASTEXITCODE -ne 0){throw 'v1.11.8 transform failed'}
+          python 'desktop\v1.11.9_visible_rule_assignment_transform.py' 'desktop\v1.11.19_release.pyw'; if($LASTEXITCODE -ne 0){throw 'v1.11.9 transform failed'}
+          python 'desktop\v1.11.10_resizable_rule_dialog_transform.py' 'desktop\v1.11.19_release.pyw'; if($LASTEXITCODE -ne 0){throw 'v1.11.10 transform failed'}
+          python 'desktop\v1.11.11_scrollable_rule_dialog_transform.py' 'desktop\v1.11.19_release.pyw'; if($LASTEXITCODE -ne 0){throw 'v1.11.11 transform failed'}
+          python 'desktop\v1.11.12_rule_edits_stay_auto_transform.py' 'desktop\v1.11.19_release.pyw'; if($LASTEXITCODE -ne 0){throw 'v1.11.12 transform failed'}
+          python 'desktop\v1.11.13_select_manual_allocations_transform.py' 'desktop\v1.11.19_release.pyw'; if($LASTEXITCODE -ne 0){throw 'v1.11.13 transform failed'}
+          python 'desktop\v1.11.14_additive_allocation_selection_transform.py' 'desktop\v1.11.19_release.pyw'; if($LASTEXITCODE -ne 0){throw 'v1.11.14 transform failed'}
+          python 'desktop\v1.11.15_user_friendly_help_transform.py' 'desktop\v1.11.19_release.pyw'; if($LASTEXITCODE -ne 0){throw 'v1.11.15 transform failed'}
+          python 'desktop\v1.11.16_recurring_identity_apply_transform.py' 'desktop\v1.11.19_release.pyw'; if($LASTEXITCODE -ne 0){throw 'v1.11.16 transform failed'}
+          python 'desktop\v1.11.17_blank_details_identity_transform.py' 'desktop\v1.11.19_release.pyw'; if($LASTEXITCODE -ne 0){throw 'v1.11.17 transform failed'}
+          python 'desktop\v1.11.18_receipt_bank_sign_transform.py' 'desktop\v1.11.19_release.pyw'; if($LASTEXITCODE -ne 0){throw 'v1.11.18 transform failed'}
+          python 'desktop\v1.11.19_autosave_session_transform.py' 'desktop\v1.11.19_release.pyw'; if($LASTEXITCODE -ne 0){throw 'v1.11.19 transform failed'}
+          python -m py_compile 'desktop\v1.11.19_release.pyw'; if($LASTEXITCODE -ne 0){throw 'v1.11.19 compile failed'}
+          python 'desktop\v1.11.19_release.pyw' --self-test; if($LASTEXITCODE -ne 0){throw 'v1.11.19 self-test failed'}
+          $src=Get-Content 'desktop\v1.11.19_release.pyw' -Raw
+          if(!$src.Contains('APP_VERSION = "1.11.19"')){throw 'Personal version marker missing'}
+          if(!$src.Contains('SESSION_SETTING_KEY = "__autosaved_session_v1"')){throw 'Session storage marker missing'}
+          if(!$src.Contains('def transaction_to_session_dict')){throw 'Session serializer missing'}
+          if(!$src.Contains('def _save_session(self)')){throw 'Session save method missing'}
+          if(!$src.Contains('def _restore_session(self)')){throw 'Session restore method missing'}
+          if(!$src.Contains('ALLOW_BUNDLED_RULE_BOOTSTRAP = True')){throw 'Personal optional bundled-rule bootstrap missing'}
+          if(!$src.Contains('signed_gross = -gross if direction == "RECEIPT" else gross')){throw 'Receipt positive-bank sign fix missing'}
+          if(!$src.Contains('canonical and p == canonical')){throw 'Blank-detail identity guard missing'}
+          if(!$src.Contains('Existing manual selections were preserved')){throw 'Additive auto-selection behavior missing'}
+          if(!$src.Contains('Existing automatic selections were preserved')){throw 'Additive manual-selection behavior missing'}
+          if(!$src.Contains('class HoverHelp')){throw 'Hover help missing'}
+          if(!$src.Contains('self.resizable(True, True)')){throw 'Resizable RuleDialog missing'}
+          if(!$src.Contains('Company profile:')){throw 'Profiles missing'}
+          if(!$src.Contains('GLOBAL SAFETY GATE')){throw 'Strict matching missing'}
+
+      - name: Prepare and test v2.0 Clean source
+        id: source_clean
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          Copy-Item 'desktop\v1.11.19_release.pyw' 'desktop\v2.0_clean_release.pyw' -Force
+          python 'desktop\v2.0_clean_feedback_transform.py' 'desktop\v2.0_clean_release.pyw'; if($LASTEXITCODE -ne 0){throw 'v2.0 clean transform failed'}
+          python -m py_compile 'desktop\v2.0_clean_release.pyw'; if($LASTEXITCODE -ne 0){throw 'v2.0 compile failed'}
+          python 'desktop\v2.0_clean_release.pyw' --self-test; if($LASTEXITCODE -ne 0){throw 'v2.0 self-test failed'}
+          $src=Get-Content 'desktop\v2.0_clean_release.pyw' -Raw
+          if(!$src.Contains('APP_VERSION = "2.0"')){throw 'Clean version marker missing'}
+          if(!$src.Contains('APP_DATA_NAMESPACE = "PastelPaymentAssistantV2Feedback"')){throw 'Clean isolated AppData namespace missing'}
+          if(!$src.Contains('APP_DATA_FALLBACK = ".pastel_payment_assistant_v2_feedback"')){throw 'Clean isolated fallback path missing'}
+          if(!$src.Contains('CLEAN_FEEDBACK_BUILD = True')){throw 'Clean build flag missing'}
+          if(!$src.Contains('ALLOW_BUNDLED_RULE_BOOTSTRAP = False')){throw 'Private bundled rule bootstrap not disabled'}
+          if(!$src.Contains('def _save_session(self)') -or !$src.Contains('def _restore_session(self)')){throw 'Autosave/resume missing from clean build'}
+          if(!$src.Contains('signed_gross = -gross if direction == "RECEIPT" else gross')){throw 'Receipt positive-bank sign fix missing from clean build'}
+          if(!$src.Contains('canonical and p == canonical')){throw 'Blank-detail identity guard missing from clean build'}
+          if(!$src.Contains('class HoverHelp')){throw 'Hover help missing from clean build'}
+          if(!$src.Contains('Company profile:')){throw 'Profiles missing from clean build'}
+          if(!$src.Contains('GLOBAL SAFETY GATE')){throw 'Strict matching missing from clean build'}
+
+      - name: Build both portable Windows apps
+        id: build
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          python -m pip install --upgrade pyinstaller
+          if($LASTEXITCODE -ne 0){throw 'PyInstaller install failed'}
+
+          Remove-Item 'desktop\v11119rebuild' -Recurse -Force -ErrorAction SilentlyContinue
+          Remove-Item 'desktop\v20rebuild' -Recurse -Force -ErrorAction SilentlyContinue
+          Remove-Item 'desktop\Pastel-Payment-Assistant-v1.11.19-Personal-Portable' -Recurse -Force -ErrorAction SilentlyContinue
+          Remove-Item 'desktop\Pastel-Payment-Assistant-v2.0-Clean-Portable' -Recurse -Force -ErrorAction SilentlyContinue
+
+          New-Item -ItemType Directory -Force 'desktop\v11119rebuild' | Out-Null
+          Copy-Item 'desktop\v1.11.19_release.pyw' 'desktop\v11119rebuild\pastel_payment_assistant.pyw' -Force
+          Push-Location 'desktop\v11119rebuild'
+          python -m PyInstaller --noconfirm --clean --onedir --windowed --name "Pastel Payment Assistant v1.11.19 Personal" pastel_payment_assistant.pyw
+          $personalCode=$LASTEXITCODE
+          Pop-Location
+          if($personalCode -ne 0){throw 'v1.11.19 Personal PyInstaller build failed'}
+          $personalApp='desktop\v11119rebuild\dist\Pastel Payment Assistant v1.11.19 Personal'
+          if(!(Test-Path $personalApp)){throw 'v1.11.19 Personal app folder missing'}
+          Copy-Item $personalApp 'desktop\Pastel-Payment-Assistant-v1.11.19-Personal-Portable' -Recurse
+          @(
+            'Pastel Payment Assistant v1.11.19 Personal - Portable Windows',
+            '',
+            'No Python installation is required. Keep the entire folder together.',
+            'Run: Pastel Payment Assistant v1.11.19 Personal.exe',
+            '',
+            'Personal build behavior:',
+            '- Uses the normal PastelPaymentAssistant AppData location, preserving existing company profiles, rules, settings and history on the same PC.',
+            '- Autosaves the full active-profile session whenever the app closes and restores it on the next launch.',
+            '- Session snapshot includes transactions, manual/corrected allocations, export ticks, search/filter/sort state, recurring view state and active tab.',
+            '- A private bundle may place Pastel_Payment_Receipt_Rules_Backup.csv beside the EXE. It is imported only when the active profile has zero rules; existing rules are never overwritten.',
+            '- Receipts are exported with the GL-side credit sign required for a positive Bank Amount on Pastel Receipts.',
+            '- STOP ORDER HANDLING FEE blank-description matching fix remains included.'
+          ) | Set-Content 'desktop\Pastel-Payment-Assistant-v1.11.19-Personal-Portable\README.txt'
+
+          New-Item -ItemType Directory -Force 'desktop\v20rebuild' | Out-Null
+          Copy-Item 'desktop\v2.0_clean_release.pyw' 'desktop\v20rebuild\pastel_payment_assistant.pyw' -Force
+          Push-Location 'desktop\v20rebuild'
+          python -m PyInstaller --noconfirm --clean --onedir --windowed --name "Pastel Payment Assistant v2.0 Clean" pastel_payment_assistant.pyw
+          $cleanCode=$LASTEXITCODE
+          Pop-Location
+          if($cleanCode -ne 0){throw 'v2.0 Clean PyInstaller build failed'}
+          $cleanApp='desktop\v20rebuild\dist\Pastel Payment Assistant v2.0 Clean'
+          if(!(Test-Path $cleanApp)){throw 'v2.0 Clean app folder missing'}
+          Copy-Item $cleanApp 'desktop\Pastel-Payment-Assistant-v2.0-Clean-Portable' -Recurse
+          @(
+            'Pastel Payment Assistant v2.0 Clean - Portable Windows Feedback Build',
+            '',
+            'No Python installation is required. Keep the entire folder together.',
+            'Run: Pastel Payment Assistant v2.0 Clean.exe',
+            '',
+            'Clean/shareable build:',
+            '- Contains no personal rules, settings, transaction history, company profiles, saved statement or autosaved session.',
+            '- Uses its own isolated PastelPaymentAssistantV2Feedback AppData location, so it will not read or modify a v1.x Personal installation on the same PC.',
+            '- Private bundled-rule bootstrap is disabled.',
+            '- New users can create their own profiles/rules/settings and the app will autosave their own sessions normally.',
+            '- Includes the same receipt-sign fix, STOP ORDER HANDLING FEE matching fix, additive Auto+Manual selection, hover help and Rule-window scrolling as the Personal build.'
+          ) | Set-Content 'desktop\Pastel-Payment-Assistant-v2.0-Clean-Portable\README.txt'
+
+          Remove-Item 'desktop\Pastel-Payment-Assistant-v1.11.19-Personal-Portable.zip' -Force -ErrorAction SilentlyContinue
+          Remove-Item 'desktop\Pastel-Payment-Assistant-v2.0-Clean-Portable.zip' -Force -ErrorAction SilentlyContinue
+          Compress-Archive 'desktop\Pastel-Payment-Assistant-v1.11.19-Personal-Portable' 'desktop\Pastel-Payment-Assistant-v1.11.19-Personal-Portable.zip' -Force
+          Compress-Archive 'desktop\Pastel-Payment-Assistant-v2.0-Clean-Portable' 'desktop\Pastel-Payment-Assistant-v2.0-Clean-Portable.zip' -Force
+          $personalHash=(Get-FileHash 'desktop\Pastel-Payment-Assistant-v1.11.19-Personal-Portable.zip' -Algorithm SHA256).Hash.ToLower()
+          $cleanHash=(Get-FileHash 'desktop\Pastel-Payment-Assistant-v2.0-Clean-Portable.zip' -Algorithm SHA256).Hash.ToLower()
+          "SHA256=$personalHash" | Set-Content 'desktop\Pastel-Payment-Assistant-v1.11.19-Personal-Portable.sha256.txt'
+          "SHA256=$cleanHash" | Set-Content 'desktop\Pastel-Payment-Assistant-v2.0-Clean-Portable.sha256.txt'
+          if((Get-Item 'desktop\Pastel-Payment-Assistant-v1.11.19-Personal-Portable.zip').Length -ge 100MB){throw 'Personal ZIP too large'}
+          if((Get-Item 'desktop\Pastel-Payment-Assistant-v2.0-Clean-Portable.zip').Length -ge 100MB){throw 'Clean ZIP too large'}
+
+      - name: Publish successful packages and stop retries
+        id: commit
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $personalHash=(Get-FileHash 'desktop\Pastel-Payment-Assistant-v1.11.19-Personal-Portable.zip' -Algorithm SHA256).Hash.ToLower()
+          $cleanHash=(Get-FileHash 'desktop\Pastel-Payment-Assistant-v2.0-Clean-Portable.zip' -Algorithm SHA256).Hash.ToLower()
+          @(
+            'Pastel Payment Assistant v1.11.19 Personal and v2.0 Clean packages succeeded.',
+            "Source commit: $env:GITHUB_SHA",
+            "v1.11.19 Personal ZIP SHA256: $personalHash",
+            "v2.0 Clean ZIP SHA256: $cleanHash",
+            'Packaging: PyInstaller --onedir --windowed',
+            'Profile-scoped autosave/restore transaction snapshot tests: passed',
+            'Save-on-exit and restore-on-launch source checks: passed',
+            'Personal existing AppData compatibility check: passed',
+            'Personal optional private-rules bootstrap guard check: passed',
+            'v2.0 isolated clean AppData namespace check: passed',
+            'v2.0 private bootstrap disabled check: passed',
+            'Receipt positive Pastel Bank Amount regression checks: passed',
+            'Receipt VAT sign and no-negative-zero checks: passed',
+            'Blank-description STOP ORDER HANDLING FEE checks: passed',
+            'Auto and Manual additive selection checks: passed',
+            'Grouped UI and hover help checks: passed',
+            'Resizable and scrollable Rule dialog checks: passed',
+            'Company profile isolation tests: passed',
+            'Monthly sequential reference tests: passed',
+            'Global strict identity matching tests: passed'
+          ) | Set-Content 'desktop\BUILD_DESKTOP_V1.11.19_AND_V2.0_SUCCESS.txt'
+          Remove-Item 'desktop\BUILD_DESKTOP_V1.11.19_AND_V2.0_FAILURE.txt' -Force -ErrorAction SilentlyContinue
+          Remove-Item 'desktop\v11119rebuild' -Recurse -Force
+          Remove-Item 'desktop\v20rebuild' -Recurse -Force
+          Remove-Item 'desktop\Pastel-Payment-Assistant-v1.11.19-Personal-Portable' -Recurse -Force
+          Remove-Item 'desktop\Pastel-Payment-Assistant-v2.0-Clean-Portable' -Recurse -Force
+          Remove-Item 'desktop\v1.11.19_release.pyw' -Force
+          Remove-Item 'desktop\v2.0_clean_release.pyw' -Force
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -f 'desktop/Pastel-Payment-Assistant-v1.11.19-Personal-Portable.zip' 'desktop/Pastel-Payment-Assistant-v1.11.19-Personal-Portable.sha256.txt' 'desktop/Pastel-Payment-Assistant-v2.0-Clean-Portable.zip' 'desktop/Pastel-Payment-Assistant-v2.0-Clean-Portable.sha256.txt' 'desktop/BUILD_DESKTOP_V1.11.19_AND_V2.0_SUCCESS.txt'
+          git rm '.github/workflows/rebuild-v11119-v20-portable.yml'
+          git commit -m 'Publish Pastel Payment Assistant v1.11.19 Personal and v2.0 Clean [skip ci]'
+          git push
+
+      - name: Record failure
+        if: failure()
+        shell: powershell
+        run: |
+          @(
+            'Pastel Payment Assistant v1.11.19 Personal / v2.0 Clean package failed.',
+            "run=${{ github.run_id }} attempt=${{ github.run_attempt }}",
+            'source_personal=${{ steps.source_personal.outcome }}',
+            'source_clean=${{ steps.source_clean.outcome }}',
+            'build=${{ steps.build.outcome }}',
+            'commit=${{ steps.commit.outcome }}'
+          ) | Set-Content 'desktop\BUILD_DESKTOP_V1.11.19_AND_V2.0_FAILURE.txt'
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -f 'desktop/BUILD_DESKTOP_V1.11.19_AND_V2.0_FAILURE.txt'
+          git commit -m 'Record v1.11.19 Personal / v2.0 Clean package failure [skip ci]'
+          if($LASTEXITCODE -eq 0){git push}
