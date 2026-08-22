@@ -1,0 +1,129 @@
+name: Rebuild Pastel Payment Assistant v1.11.11 Portable
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/rebuild-v11111-portable.yml'
+  schedule:
+    - cron: '*/5 * * * *'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: pastel-v11111-rebuild
+  cancel-in-progress: false
+
+jobs:
+  rebuild:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Prepare v1.11.11 source
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          git fetch origin feature/v1.11-allocation-controls
+          git show origin/feature/v1.11-allocation-controls:desktop/v1.11_final.pyw | Out-File -FilePath 'desktop\v1.11.11_release.pyw' -Encoding utf8
+          python 'desktop\v1.11.1_strict_match_transform.py' 'desktop\v1.11.11_release.pyw'; if($LASTEXITCODE -ne 0){throw 'v1.11.1 transform failed'}
+          python 'desktop\v1.11.2_global_match_transform.py' 'desktop\v1.11.11_release.pyw'; if($LASTEXITCODE -ne 0){throw 'v1.11.2 transform failed'}
+          python 'desktop\v1.11.3_amount_description_transform.py' 'desktop\v1.11.11_release.pyw'; if($LASTEXITCODE -ne 0){throw 'v1.11.3 transform failed'}
+          python 'desktop\v1.11.4_amount_review_transform.py' 'desktop\v1.11.11_release.pyw'; if($LASTEXITCODE -ne 0){throw 'v1.11.4 transform failed'}
+          python 'desktop\v1.11.5_sequential_reference_transform.py' 'desktop\v1.11.11_release.pyw'; if($LASTEXITCODE -ne 0){throw 'v1.11.5 transform failed'}
+          python 'desktop\v1.11.6_profiles_transform.py' 'desktop\v1.11.11_release.pyw'; if($LASTEXITCODE -ne 0){throw 'v1.11.6 transform failed'}
+          python 'desktop\v1.11.7_multi_review_assignment_transform.py' 'desktop\v1.11.11_release.pyw'; if($LASTEXITCODE -ne 0){throw 'v1.11.7 transform failed'}
+          python 'desktop\v1.11.8_pre_remove_main_review_method.py' 'desktop\v1.11.11_release.pyw'; if($LASTEXITCODE -ne 0){throw 'v1.11.8 pre-transform failed'}
+          python 'desktop\v1.11.8_rule_dialog_review_table_transform.py' 'desktop\v1.11.11_release.pyw'; if($LASTEXITCODE -ne 0){throw 'v1.11.8 transform failed'}
+          python 'desktop\v1.11.9_visible_rule_assignment_transform.py' 'desktop\v1.11.11_release.pyw'; if($LASTEXITCODE -ne 0){throw 'v1.11.9 transform failed'}
+          python 'desktop\v1.11.10_resizable_rule_dialog_transform.py' 'desktop\v1.11.11_release.pyw'; if($LASTEXITCODE -ne 0){throw 'v1.11.10 transform failed'}
+          python 'desktop\v1.11.11_scrollable_rule_dialog_transform.py' 'desktop\v1.11.11_release.pyw'; if($LASTEXITCODE -ne 0){throw 'v1.11.11 transform failed'}
+          python -m py_compile 'desktop\v1.11.11_release.pyw'; if($LASTEXITCODE -ne 0){throw 'compile failed'}
+          python 'desktop\v1.11.11_release.pyw' --self-test; if($LASTEXITCODE -ne 0){throw 'self-test failed'}
+          $src=Get-Content 'desktop\v1.11.11_release.pyw' -Raw
+          if(!$src.Contains('APP_VERSION = "1.11.11"')){throw 'Version marker missing'}
+          if(!$src.Contains('self.resizable(True, True)')){throw 'Resizable RuleDialog missing'}
+          if(!$src.Contains('self.rule_vscroll')){throw 'Vertical RuleDialog scrollbar missing'}
+          if(!$src.Contains('self.rule_hscroll')){throw 'Horizontal RuleDialog scrollbar missing'}
+          if(!$src.Contains('self.rule_canvas')){throw 'Scrollable RuleDialog canvas missing'}
+          if(!$src.Contains('amount_box.rowconfigure(6, weight=1)')){throw 'Expandable amount-review table missing'}
+          if(!$src.Contains('amount_review_assign_button')){throw 'Visible Assign selected control missing'}
+          if(!$src.Contains('Company profile:')){throw 'Profiles missing'}
+          if(!$src.Contains('assign_monthly_sequential_references')){throw 'Sequential references missing'}
+          if(!$src.Contains('GLOBAL SAFETY GATE')){throw 'Strict matching missing'}
+
+      - name: Build portable Windows app
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          python -m pip install --upgrade pyinstaller
+          if($LASTEXITCODE -ne 0){throw 'PyInstaller install failed'}
+          Remove-Item 'desktop\v11111rebuild' -Recurse -Force -ErrorAction SilentlyContinue
+          Remove-Item 'desktop\Pastel-Payment-Assistant-v1.11.11-Portable' -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force 'desktop\v11111rebuild' | Out-Null
+          Copy-Item 'desktop\v1.11.11_release.pyw' 'desktop\v11111rebuild\pastel_payment_assistant.pyw' -Force
+          Push-Location 'desktop\v11111rebuild'
+          python -m PyInstaller --noconfirm --clean --onedir --windowed --name "Pastel Payment Assistant v1.11.11" pastel_payment_assistant.pyw
+          $buildCode=$LASTEXITCODE
+          Pop-Location
+          if($buildCode -ne 0){throw 'PyInstaller build failed'}
+          $app='desktop\v11111rebuild\dist\Pastel Payment Assistant v1.11.11'
+          if(!(Test-Path $app)){throw 'Portable app folder missing'}
+          Copy-Item $app 'desktop\Pastel-Payment-Assistant-v1.11.11-Portable' -Recurse
+          @(
+            'Pastel Payment Assistant v1.11.11 - Portable Windows',
+            '',
+            'No Python installation is required.',
+            'Keep the extracted folder together.',
+            'Run: Pastel Payment Assistant v1.11.11.exe',
+            '',
+            'Rule window improvements:',
+            '- Assign Payment Rule / Assign Receipt Rule is resizable in both directions.',
+            '- Vertical and horizontal scrollbars provide access to every field if the window is constrained.',
+            '- The amount-review transaction table expands when more space is available.',
+            '- The always-visible Assign selected control is retained.'
+          ) | Set-Content 'desktop\Pastel-Payment-Assistant-v1.11.11-Portable\README.txt'
+          Remove-Item 'desktop\Pastel-Payment-Assistant-v1.11.11-Portable.zip' -Force -ErrorAction SilentlyContinue
+          Compress-Archive 'desktop\Pastel-Payment-Assistant-v1.11.11-Portable' 'desktop\Pastel-Payment-Assistant-v1.11.11-Portable.zip' -Force
+          $hash=(Get-FileHash 'desktop\Pastel-Payment-Assistant-v1.11.11-Portable.zip' -Algorithm SHA256).Hash.ToLower()
+          "SHA256=$hash" | Set-Content 'desktop\Pastel-Payment-Assistant-v1.11.11-Portable.sha256.txt'
+          if((Get-Item 'desktop\Pastel-Payment-Assistant-v1.11.11-Portable.zip').Length -ge 100MB){throw 'Portable ZIP too large'}
+
+      - name: Publish successful package and stop retries
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $hash=(Get-FileHash 'desktop\Pastel-Payment-Assistant-v1.11.11-Portable.zip' -Algorithm SHA256).Hash.ToLower()
+          @(
+            'Pastel Payment Assistant v1.11.11 portable package succeeded.',
+            "Source commit: $env:GITHUB_SHA",
+            "Portable ZIP SHA256: $hash",
+            'Packaging: PyInstaller --onedir --windowed',
+            'Resizable Assign/Edit Rule dialog checks: passed',
+            'Vertical and horizontal Rule-dialog scrollbar checks: passed',
+            'Expandable embedded amount-review table checks: passed',
+            'Always-visible Assign selected toolbar check: passed',
+            'Grouped PETROL/SURVEY allocation tests: passed',
+            'Company profile isolation tests: passed',
+            'Monthly sequential reference tests: passed',
+            'Global strict identity matching tests: passed'
+          ) | Set-Content 'desktop\BUILD_DESKTOP_V1.11.11_SCROLLABLE_RULE_SUCCESS.txt'
+          Remove-Item 'desktop\v11111rebuild' -Recurse -Force
+          Remove-Item 'desktop\Pastel-Payment-Assistant-v1.11.11-Portable' -Recurse -Force
+          Remove-Item 'desktop\v1.11.11_release.pyw' -Force
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add 'desktop/Pastel-Payment-Assistant-v1.11.11-Portable.zip' 'desktop/Pastel-Payment-Assistant-v1.11.11-Portable.sha256.txt' 'desktop/BUILD_DESKTOP_V1.11.11_SCROLLABLE_RULE_SUCCESS.txt'
+          git rm '.github/workflows/rebuild-v11111-portable.yml'
+          git commit -m 'Publish Pastel Payment Assistant v1.11.11 portable [skip ci]'
+          git push
