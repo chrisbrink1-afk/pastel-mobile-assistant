@@ -1,0 +1,10 @@
+Pastel Payment Assistant v1.11.8 portable package succeeded.
+Source commit: ef70c421f7b2a6835febec80f52b924dca46243f
+Portable ZIP SHA256: 4e8b87c078bcade3a68cbdc8cb861cce06eea98ab1c6ef46d853b94d19db3ddf
+Packaging: PyInstaller --onedir --windowed (same method as v1.10)
+Embedded Rule-window amount review table tests: passed
+Grouped PETROL/SURVEY allocation tests: passed
+Old main-screen Allocate control removal check: passed
+Company profile isolation tests: passed
+Monthly sequential and same-date unique-reference tests: passed
+Global strict identity matching tests: passed

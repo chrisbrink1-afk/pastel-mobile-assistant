@@ -1,4 +1,0 @@
-Pastel Payment Assistant v1.11.8 package failed.
-source=failure
-build=skipped
-commit=skipped
