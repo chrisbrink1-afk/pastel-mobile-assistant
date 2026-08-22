@@ -1,0 +1,234 @@
+name: Build Pastel Payment Assistant v1.11 Rules Compatible
+
+on:
+  push:
+    branches:
+      - feature/v1.11-allocation-controls
+    paths:
+      - '.github/workflows/build-desktop-v111-rules-compatible.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Prepare final source
+        id: prepare
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          Copy-Item 'desktop\v1.11_candidate.pyw' 'desktop\v1.11_release.pyw' -Force
+          @'
+          from pathlib import Path
+          p = Path(r'desktop\v1.11_release.pyw')
+          s = p.read_text(encoding='utf-8')
+          old = '        st.remember_transactions([r2]); assert r2.recurring_count == 2\n\n    # v1.11: amount-based allocation, descriptions and auto-allocation state.'
+          new = '        st.remember_transactions([r2]); assert r2.recurring_count == 2\n        st.conn.close()\n\n    # v1.11: amount-based allocation, descriptions and auto-allocation state.'
+          if old not in s:
+              raise SystemExit('self-test close anchor not found')
+          p.write_text(s.replace(old, new, 1), encoding='utf-8')
+          '@ | python -
+          if($LASTEXITCODE -ne 0){throw 'Could not prepare release source'}
+
+      - name: Compile and run self-tests
+        id: test
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          python -m py_compile 'desktop\v1.11_release.pyw'
+          if($LASTEXITCODE -ne 0){throw 'Python source validation failed'}
+          python 'desktop\v1.11_release.pyw' --self-test | Tee-Object -FilePath 'desktop\V111_RELEASE_SELF_TEST.txt'
+          if($LASTEXITCODE -ne 0){throw 'v1.11 self-test failed'}
+
+      - name: Test v1.10 rules backup compatibility
+        id: rules_test
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          @'
+          import csv
+          import io
+          import runpy
+          import tempfile
+          from pathlib import Path
+
+          ns = runpy.run_path(r'desktop\v1.11_release.pyw', run_name='v111_rules_test')
+          Rule = ns['Rule']
+          Store = ns['Store']
+
+          # Exact v1.10 backup format: no description/amount-rule columns.
+          old_csv = '''direction,name,mode,pattern,account,vat,tax_type,pastel_ref,priority,enabled\nPAYMENT,HOLLARD 0923,SMART,HOLLARD 0923,7100002,1,1,0923,100,1\nRECEIPT,CLIENT ABC,SMART,CLIENT ABC 1234,4000001,0,0,1234,90,1\n'''
+          rows = list(csv.DictReader(io.StringIO(old_csv)))
+          assert len(rows) == 2
+
+          with tempfile.TemporaryDirectory() as td:
+              st = Store(Path(td) / 'rules.db')
+              for row in rows:
+                  direction = (row.get('direction') or 'PAYMENT').strip().upper()
+                  if direction not in {'PAYMENT','RECEIPT'}:
+                      direction = 'PAYMENT'
+                  r = Rule(
+                      None,
+                      row.get('name','').strip(),
+                      row.get('mode','SMART').strip(),
+                      row.get('pattern','').strip(),
+                      row.get('account','').strip(),
+                      row.get('vat','0').strip() in {'1','true','True','yes','Yes'},
+                      int(row.get('tax_type','0') or 0),
+                      row.get('pastel_ref','').strip(),
+                      int(row.get('priority','100') or 100),
+                      row.get('enabled','1').strip() not in {'0','false','False'},
+                      direction,
+                      row.get('description','').strip(),
+                      row.get('amount_operator','').strip(),
+                      row.get('amount_threshold','').strip(),
+                      row.get('amount_account','').strip(),
+                  )
+                  st.save_rule(r)
+              rules = st.all_rules()
+              assert len(rules) == 2
+              p = next(r for r in rules if r.direction == 'PAYMENT')
+              rr = next(r for r in rules if r.direction == 'RECEIPT')
+              assert (p.name, p.pattern, p.account, p.vat, p.tax_type, p.pastel_ref, p.priority) == ('HOLLARD 0923','HOLLARD 0923','7100002',True,1,'0923',100)
+              assert (rr.name, rr.pattern, rr.account, rr.vat, rr.pastel_ref, rr.priority) == ('CLIENT ABC','CLIENT ABC 1234','4000001',False,'1234',90)
+              assert p.description == '' and p.amount_operator == '' and p.amount_account == ''
+              assert rr.description == '' and rr.amount_operator == '' and rr.amount_account == ''
+              st.conn.close()
+          print('v1.10 rules backup compatibility passed: existing fields preserved; new v1.11 fields default blank')
+          '@ | python - | Tee-Object -FilePath 'desktop\V111_V110_RULES_COMPATIBILITY_TEST.txt'
+          if($LASTEXITCODE -ne 0){throw 'v1.10 rules backup compatibility test failed'}
+
+      - name: Verify requested v1.11 features
+        id: verify
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $src = Get-Content 'desktop\v1.11_release.pyw' -Raw
+          @(
+            'APP_VERSION = "1.11.0"',
+            'Select Auto-Allocated',
+            'Correct auto-allocation',
+            'Use amount-based allocation rule',
+            'Pastel description',
+            'amount_condition_matches',
+            'Corrected allocation',
+            'Export rules backup…',
+            'Import rules backup…',
+            'row.get("description", "")',
+            'row.get("amount_operator", "")'
+          ) | ForEach-Object {
+            if(!$src.Contains($_)){throw "Missing feature marker: $_"}
+          }
+
+      - name: Install PyInstaller
+        id: install
+        shell: powershell
+        run: |
+          python -m pip install --upgrade pyinstaller
+          if($LASTEXITCODE -ne 0){throw 'PyInstaller installation failed'}
+
+      - name: Build portable Windows folder
+        id: pyinstaller
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          New-Item -ItemType Directory -Force 'desktop\v111portable' | Out-Null
+          Copy-Item 'desktop\v1.11_release.pyw' 'desktop\v111portable\pastel_payment_assistant.pyw' -Force
+          Push-Location 'desktop\v111portable'
+          python -m PyInstaller --noconfirm --clean --onedir --windowed --name "Pastel Payment Assistant v1.11" pastel_payment_assistant.pyw
+          $code=$LASTEXITCODE
+          Pop-Location
+          if($code -ne 0){throw 'PyInstaller build failed'}
+
+      - name: Package portable ZIP
+        id: package
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $src='desktop\v111portable\dist\Pastel Payment Assistant v1.11'
+          if(!(Test-Path $src)){throw 'Portable application folder was not created'}
+          Copy-Item $src 'Pastel-Payment-Assistant-v1.11-Portable' -Recurse
+          @(
+            'Pastel Payment Assistant v1.11 - Portable Windows',
+            '',
+            'No Python installation is required.',
+            'Keep this entire folder together.',
+            'Run: Pastel Payment Assistant v1.11.exe',
+            '',
+            'New in v1.11:',
+            '- Assign a Pastel description to saved rules and one-off transactions.',
+            '- Optional amount-based GL allocation using <, <=, >, >= or =.',
+            '- Select Auto-Allocated ticks only untouched automatic allocations.',
+            '- Correct a false auto-allocation and optionally update its saved rule.',
+            '- Corrected rows remain visibly marked and stay out of Select Auto-Allocated until reset.',
+            '- v1.10 rule-backup CSV files import directly into v1.11; existing GL/VAT/reference mappings are retained.',
+            '- v1.11 rule exports include the new description and amount-rule fields.',
+            '',
+            'The Cash Book bank GL remains the batch-level Pastel import column L setting.',
+            '',
+            'If corporate endpoint security blocks the application, ask IT/security to review or allow it rather than disabling security controls.'
+          ) | Set-Content 'Pastel-Payment-Assistant-v1.11-Portable\README.txt'
+          Compress-Archive 'Pastel-Payment-Assistant-v1.11-Portable' 'Pastel-Payment-Assistant-v1.11-Portable.zip' -Force
+          $hash=(Get-FileHash 'Pastel-Payment-Assistant-v1.11-Portable.zip' -Algorithm SHA256).Hash.ToLower()
+          "SHA256=$hash" | Set-Content 'Pastel-Payment-Assistant-v1.11-Portable.sha256.txt'
+
+      - name: Upload build artifact
+        id: upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: Pastel-Payment-Assistant-v1.11-Portable-Windows
+          path: |
+            Pastel-Payment-Assistant-v1.11-Portable.zip
+            Pastel-Payment-Assistant-v1.11-Portable.sha256.txt
+
+      - name: Publish v1.11 release
+        id: release
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete desktop-v1.11-portable --cleanup-tag -y 2>$null
+          gh release create desktop-v1.11-portable Pastel-Payment-Assistant-v1.11-Portable.zip Pastel-Payment-Assistant-v1.11-Portable.sha256.txt --title "Pastel Payment Assistant v1.11 - Portable Windows" --notes "Adds transaction descriptions, optional amount-based GL allocation rules, Select Auto-Allocated, false auto-allocation correction with optional saved-rule updates, and verified compatibility with v1.10 rules-backup CSV files."
+          if($LASTEXITCODE -ne 0){throw 'GitHub release creation failed'}
+
+      - name: Record final status and source
+        if: always()
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Continue'
+          $lines=@(
+            'Pastel Payment Assistant v1.11 final rules-compatible Windows build status',
+            "Source commit: $env:GITHUB_SHA",
+            'prepare=${{ steps.prepare.outcome }}',
+            'test=${{ steps.test.outcome }}',
+            'rules_test=${{ steps.rules_test.outcome }}',
+            'verify=${{ steps.verify.outcome }}',
+            'install=${{ steps.install.outcome }}',
+            'pyinstaller=${{ steps.pyinstaller.outcome }}',
+            'package=${{ steps.package.outcome }}',
+            'upload=${{ steps.upload.outcome }}',
+            'release=${{ steps.release.outcome }}'
+          )
+          if(Test-Path 'Pastel-Payment-Assistant-v1.11-Portable.zip'){
+            $hash=(Get-FileHash 'Pastel-Payment-Assistant-v1.11-Portable.zip' -Algorithm SHA256).Hash.ToLower()
+            $lines += "Portable ZIP SHA256: $hash"
+          }
+          $lines | Set-Content 'desktop\BUILD_DESKTOP_V1.11_RULES_COMPATIBLE_STATUS.txt'
+          if(Test-Path 'desktop\v1.11_release.pyw'){Copy-Item 'desktop\v1.11_release.pyw' 'desktop\v1.11_final.pyw' -Force}
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add 'desktop/BUILD_DESKTOP_V1.11_RULES_COMPATIBLE_STATUS.txt'
+          if(Test-Path 'desktop\v1.11_final.pyw'){git add 'desktop/v1.11_final.pyw'}
+          if(Test-Path 'desktop\V111_RELEASE_SELF_TEST.txt'){git add 'desktop/V111_RELEASE_SELF_TEST.txt'}
+          if(Test-Path 'desktop\V111_V110_RULES_COMPATIBILITY_TEST.txt'){git add 'desktop/V111_V110_RULES_COMPATIBILITY_TEST.txt'}
+          git commit -m 'Record final v1.11 rules-compatible build [skip ci]'
+          if($LASTEXITCODE -eq 0){git push}
