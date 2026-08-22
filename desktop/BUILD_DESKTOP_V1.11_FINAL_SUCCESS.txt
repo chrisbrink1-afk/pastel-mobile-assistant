@@ -1,0 +1,5 @@
+Pastel Payment Assistant v1.11 portable Windows FINAL release succeeded.
+Source commit: 48051b44de2dae14fcc7d4c579a50af4a8588200
+Portable ZIP SHA256: 3007ec8ff9094dcdf6c897cb8a54c2ae5c21575366a4d71b7fb77216d1c716c7
+v1.10 rules backup compatibility: passed
+Portable packaging matches v1.10: PyInstaller --onedir --windowed
