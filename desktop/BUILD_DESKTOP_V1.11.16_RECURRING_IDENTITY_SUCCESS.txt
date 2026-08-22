@@ -1,0 +1,14 @@
+Pastel Payment Assistant v1.11.16 portable package succeeded.
+Source commit: 80acb0b325c1b33ad84a85ce15c847021cc0125c
+Portable ZIP SHA256: 3245a2259d70b8bf56ff688bc91a7b95d53b189c242cbc6d3f922c44fb35b51b
+Packaging: PyInstaller --onedir --windowed
+Recurring identity child rows inherit saved GL/VAT/description check: passed
+Recurring identity child rows become automatic allocations check: passed
+Exact recurring identity safety check: passed
+Amount-review behavior check: passed
+Auto and Manual additive selection checks: passed
+Grouped UI and hover help checks: passed
+Resizable and scrollable Rule dialog checks: passed
+Company profile isolation tests: passed
+Monthly sequential reference tests: passed
+Global strict identity matching tests: passed
