@@ -42,3 +42,5 @@ def main(path: str) -> None:
 
 if __name__ == "__main__":
     main(sys.argv[1])
+
+# Build trigger: v1.11.9 visible assignment toolbar
