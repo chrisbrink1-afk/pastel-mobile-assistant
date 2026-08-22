@@ -1,0 +1,154 @@
+name: Publish Pastel Payment Assistant v1.11.7 Portable
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/publish-v1117-portable-file.yml'
+      - 'desktop/v1.11.7_multi_review_assignment_transform.py'
+      - 'desktop/v1.11.6_profiles_transform.py'
+      - 'desktop/v1.11.5_sequential_reference_transform.py'
+      - 'desktop/v1.11.4_amount_review_transform.py'
+      - 'desktop/v1.11.3_amount_description_transform.py'
+      - 'desktop/v1.11.2_global_match_transform.py'
+      - 'desktop/v1.11.1_strict_match_transform.py'
+
+permissions:
+  contents: write
+
+jobs:
+  publish-file:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Prepare v1.11.7 source
+        id: source
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          git fetch origin feature/v1.11-allocation-controls
+          git show origin/feature/v1.11-allocation-controls:desktop/v1.11_final.pyw | Out-File -FilePath 'desktop\v1.11.7_release.pyw' -Encoding utf8
+          python 'desktop\v1.11.1_strict_match_transform.py' 'desktop\v1.11.7_release.pyw'
+          if($LASTEXITCODE -ne 0){throw 'v1.11.1 strict-match transform failed'}
+          python 'desktop\v1.11.2_global_match_transform.py' 'desktop\v1.11.7_release.pyw'
+          if($LASTEXITCODE -ne 0){throw 'v1.11.2 global safety transform failed'}
+          python 'desktop\v1.11.3_amount_description_transform.py' 'desktop\v1.11.7_release.pyw'
+          if($LASTEXITCODE -ne 0){throw 'v1.11.3 amount-description transform failed'}
+          python 'desktop\v1.11.4_amount_review_transform.py' 'desktop\v1.11.7_release.pyw'
+          if($LASTEXITCODE -ne 0){throw 'v1.11.4 amount-review transform failed'}
+          python 'desktop\v1.11.5_sequential_reference_transform.py' 'desktop\v1.11.7_release.pyw'
+          if($LASTEXITCODE -ne 0){throw 'v1.11.5 sequential-reference transform failed'}
+          python 'desktop\v1.11.6_profiles_transform.py' 'desktop\v1.11.7_release.pyw'
+          if($LASTEXITCODE -ne 0){throw 'v1.11.6 profiles transform failed'}
+          python 'desktop\v1.11.7_multi_review_assignment_transform.py' 'desktop\v1.11.7_release.pyw'
+          if($LASTEXITCODE -ne 0){throw 'v1.11.7 multi-review transform failed'}
+          python -m py_compile 'desktop\v1.11.7_release.pyw'
+          if($LASTEXITCODE -ne 0){throw 'v1.11.7 compile failed'}
+          python 'desktop\v1.11.7_release.pyw' --self-test
+          if($LASTEXITCODE -ne 0){throw 'v1.11.7 self-test failed'}
+          $src=Get-Content 'desktop\v1.11.7_release.pyw' -Raw
+          if(!$src.Contains('APP_VERSION = "1.11.7"')){throw 'Version marker missing'}
+          if(!$src.Contains('Assign selected review items')){throw 'Multi-review assignment button missing'}
+          if(!$src.Contains('apply_review_assignment')){throw 'Multi-review assignment helper missing'}
+          if(!$src.Contains('"review": "Allocate"')){throw 'Allocate checkbox column missing'}
+          if(!$src.Contains('Company profile:')){throw 'Company profiles missing'}
+          if(!$src.Contains('assign_monthly_sequential_references')){throw 'Sequential reference generator missing'}
+          if(!$src.Contains('GLOBAL SAFETY GATE')){throw 'Strict allocation safety missing'}
+
+      - name: Build portable package like v1.10
+        id: build
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          python -m pip install --upgrade pyinstaller
+          if($LASTEXITCODE -ne 0){throw 'PyInstaller installation failed'}
+          New-Item -ItemType Directory -Force 'desktop\v1117repo' | Out-Null
+          Copy-Item 'desktop\v1.11.7_release.pyw' 'desktop\v1117repo\pastel_payment_assistant.pyw' -Force
+          Push-Location 'desktop\v1117repo'
+          python -m PyInstaller --noconfirm --clean --onedir --windowed --name "Pastel Payment Assistant v1.11.7" pastel_payment_assistant.pyw
+          $code=$LASTEXITCODE
+          Pop-Location
+          if($code -ne 0){throw 'PyInstaller build failed'}
+          $app='desktop\v1117repo\dist\Pastel Payment Assistant v1.11.7'
+          if(!(Test-Path $app)){throw 'Portable app folder missing'}
+          Copy-Item $app 'desktop\Pastel-Payment-Assistant-v1.11.7-Portable' -Recurse
+          @(
+            'Pastel Payment Assistant v1.11.7 - Portable Windows',
+            '',
+            'No Python installation is required.',
+            'Keep this entire folder together.',
+            'Run: Pastel Payment Assistant v1.11.7.exe',
+            '',
+            'Built using the same PyInstaller --onedir --windowed packaging method as v1.10.',
+            '',
+            'v1.11.7 Amount Review multi-select allocation:',
+            '- Amount Review rows now show a separate Allocate checkbox next to the Export checkbox.',
+            '- Tick one or many Allocate boxes, then click Assign selected review items.',
+            '- Example: tick 3 rows and assign them to PETROL, then tick 1 different row and assign it to SURVEY.',
+            '- Only the checked Allocate rows are changed; all other qualifying Amount Review rows remain untouched.',
+            '- One checked row works exactly like a single-item assignment.',
+            '- The grouped assignment supports GL account, optional common Pastel description, VAT and tax type.',
+            '- Leaving grouped description blank preserves each selected row''s existing description.',
+            '',
+            'Retained features:',
+            '- v1.11.6 isolated company profiles.',
+            '- v1.11.5 unique monthly Pastel references such as P6-0001 / R6-0001, including same-date sequencing.',
+            '- v1.11.4 amount-review mode.',
+            '- v1.11.3 alternative amount descriptions.',
+            '- v1.11.2 global strict name/reference allocation safety for all payments and receipts.'
+          ) | Set-Content 'desktop\Pastel-Payment-Assistant-v1.11.7-Portable\README.txt'
+          Compress-Archive 'desktop\Pastel-Payment-Assistant-v1.11.7-Portable' 'desktop\Pastel-Payment-Assistant-v1.11.7-Portable.zip' -Force
+          $hash=(Get-FileHash 'desktop\Pastel-Payment-Assistant-v1.11.7-Portable.zip' -Algorithm SHA256).Hash.ToLower()
+          "SHA256=$hash" | Set-Content 'desktop\Pastel-Payment-Assistant-v1.11.7-Portable.sha256.txt'
+          if((Get-Item 'desktop\Pastel-Payment-Assistant-v1.11.7-Portable.zip').Length -ge 100MB){throw 'Portable ZIP too large'}
+
+      - name: Commit portable ZIP to main
+        id: commit
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          Remove-Item 'desktop\Pastel-Payment-Assistant-v1.11.7-Portable' -Recurse -Force
+          Remove-Item 'desktop\v1117repo' -Recurse -Force
+          Remove-Item 'desktop\v1.11.7_release.pyw' -Force
+          $hash=(Get-FileHash 'desktop\Pastel-Payment-Assistant-v1.11.7-Portable.zip' -Algorithm SHA256).Hash.ToLower()
+          @(
+            'Pastel Payment Assistant v1.11.7 portable package succeeded.',
+            "Source commit: $env:GITHUB_SHA",
+            "Portable ZIP SHA256: $hash",
+            'Packaging: PyInstaller --onedir --windowed (same method as v1.10)',
+            'Multi-select Amount Review assignment tests: passed',
+            'Company profile isolation tests: passed',
+            'Monthly sequential and same-date unique-reference tests: passed',
+            'Amount-review and alternative-description tests: passed',
+            'Global strict identity matching tests: passed'
+          ) | Set-Content 'desktop\BUILD_DESKTOP_V1.11.7_MULTI_REVIEW_SUCCESS.txt'
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add 'desktop/Pastel-Payment-Assistant-v1.11.7-Portable.zip' 'desktop/Pastel-Payment-Assistant-v1.11.7-Portable.sha256.txt' 'desktop/BUILD_DESKTOP_V1.11.7_MULTI_REVIEW_SUCCESS.txt'
+          git commit -m 'Publish Pastel Payment Assistant v1.11.7 portable [skip ci]'
+          git push
+
+      - name: Record failure status
+        if: failure()
+        shell: powershell
+        run: |
+          @(
+            'Pastel Payment Assistant v1.11.7 package failed.',
+            'source=${{ steps.source.outcome }}',
+            'build=${{ steps.build.outcome }}',
+            'commit=${{ steps.commit.outcome }}'
+          ) | Set-Content 'desktop\BUILD_DESKTOP_V1.11.7_MULTI_REVIEW_FAILURE.txt'
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add 'desktop/BUILD_DESKTOP_V1.11.7_MULTI_REVIEW_FAILURE.txt'
+          git commit -m 'Record v1.11.7 package failure [skip ci]'
+          if($LASTEXITCODE -eq 0){git push}
