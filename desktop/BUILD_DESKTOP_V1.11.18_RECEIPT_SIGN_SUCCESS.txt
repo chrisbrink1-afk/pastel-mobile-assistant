@@ -1,0 +1,16 @@
+Pastel Payment Assistant v1.11.18 portable package succeeded.
+Source commit: e5aafc75f29583c19cdb54ed643acae0866df674
+Portable ZIP SHA256: 92330f571d9629993b381c4c329087e5030ce0ac4c35d7fa9362a3262a26a27a
+Packaging: PyInstaller --onedir --windowed
+Payment GL-side positive sign regression check: passed
+Receipt GL-side negative sign / positive Pastel Bank Amount regression check: passed
+Receipt VAT/tax credit sign check: passed
+Zero-tax no-negative-zero check: passed
+Blank-description STOP ORDER HANDLING FEE match check: passed
+Recurring identity child allocation checks: passed
+Auto and Manual additive selection checks: passed
+Grouped UI and hover help checks: passed
+Resizable and scrollable Rule dialog checks: passed
+Company profile isolation tests: passed
+Monthly sequential reference tests: passed
+Global strict identity matching tests: passed
