@@ -1,0 +1,95 @@
+name: Apply v1.11 Settings Transfer
+
+on:
+  push:
+    branches:
+      - feature/v1.11-allocation-controls
+    paths:
+      - '.github/workflows/apply-v111-settings-transfer.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Apply settings transfer patch
+        id: patch
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          python 'desktop\v1.11_settings_transfer_patch.py' 'desktop\v1.11_candidate.pyw'
+          if($LASTEXITCODE -ne 0){throw 'Settings transfer patch failed'}
+
+      - name: Compile and self-test
+        id: test
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          python -m py_compile 'desktop\v1.11_candidate.pyw'
+          if($LASTEXITCODE -ne 0){throw 'Candidate compile failed'}
+          python 'desktop\v1.11_candidate.pyw' --self-test | Tee-Object -FilePath 'desktop\V111_SELF_TEST_WITH_SETTINGS_TRANSFER.txt'
+          if($LASTEXITCODE -ne 0){throw 'Candidate self-test failed'}
+
+      - name: Test v1.10 database and JSON settings import
+        id: transfer_test
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          @'
+          import json
+          import runpy
+          import sqlite3
+          import tempfile
+          from pathlib import Path
+
+          ns = runpy.run_path(r'desktop\v1.11_candidate.pyw', run_name='v111_settings_test')
+          reader = ns['read_settings_transfer']
+          expected = {
+              'contra_account': '1100000',
+              'vat_tax_type': '1',
+              'vat_rate': '15',
+              'fiscal_start_month': '3',
+              'project_code': 'ABC',
+          }
+          with tempfile.TemporaryDirectory() as td:
+              td = Path(td)
+              db = td / 'pastel_payment_assistant.db'
+              conn = sqlite3.connect(db)
+              conn.execute('CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)')
+              conn.executemany('INSERT INTO settings(key,value) VALUES(?,?)', list(expected.items()) + [('last_folder', r'C:\old')])
+              conn.commit(); conn.close()
+              assert reader(str(db)) == expected
+
+              js = td / 'settings.json'
+              js.write_text(json.dumps({'format':'PastelPaymentAssistantSettings','format_version':1,'settings':expected}), encoding='utf-8')
+              assert reader(str(js)) == expected
+          print('v1.10 DB import and JSON settings backup import passed')
+          '@ | python - | Tee-Object -FilePath 'desktop\V111_SETTINGS_TRANSFER_TEST.txt'
+          if($LASTEXITCODE -ne 0){throw 'Settings transfer compatibility test failed'}
+
+      - name: Record patched candidate
+        if: always()
+        shell: powershell
+        run: |
+          $lines=@(
+            'Pastel Payment Assistant v1.11 settings transfer patch status',
+            "Source commit: $env:GITHUB_SHA",
+            'patch=${{ steps.patch.outcome }}',
+            'test=${{ steps.test.outcome }}',
+            'transfer_test=${{ steps.transfer_test.outcome }}'
+          )
+          $lines | Set-Content 'desktop\V111_SETTINGS_TRANSFER_STATUS.txt'
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add 'desktop/v1.11_candidate.pyw' 'desktop/V111_SETTINGS_TRANSFER_STATUS.txt'
+          if(Test-Path 'desktop\V111_SELF_TEST_WITH_SETTINGS_TRANSFER.txt'){git add 'desktop/V111_SELF_TEST_WITH_SETTINGS_TRANSFER.txt'}
+          if(Test-Path 'desktop\V111_SETTINGS_TRANSFER_TEST.txt'){git add 'desktop/V111_SETTINGS_TRANSFER_TEST.txt'}
+          git commit -m 'Add v1.10 to v1.11 settings transfer support [skip ci]'
+          if($LASTEXITCODE -eq 0){git push}
