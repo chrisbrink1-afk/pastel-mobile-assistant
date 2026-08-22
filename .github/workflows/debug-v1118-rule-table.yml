@@ -1,0 +1,60 @@
+name: Debug v1.11.8 Rule Table
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/debug-v1118-rule-table.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  debug:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Run transform chain and capture output
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Continue'
+          $log='desktop\V1118_TRANSFORM_DIAGNOSTIC.txt'
+          "v1.11.8 transform diagnostic" | Set-Content $log
+          git fetch origin feature/v1.11-allocation-controls 2>&1 | Tee-Object -FilePath $log -Append
+          git show origin/feature/v1.11-allocation-controls:desktop/v1.11_final.pyw | Out-File -FilePath 'desktop\v1.11.8_debug.pyw' -Encoding utf8
+          $scripts=@(
+            'desktop\v1.11.1_strict_match_transform.py',
+            'desktop\v1.11.2_global_match_transform.py',
+            'desktop\v1.11.3_amount_description_transform.py',
+            'desktop\v1.11.4_amount_review_transform.py',
+            'desktop\v1.11.5_sequential_reference_transform.py',
+            'desktop\v1.11.6_profiles_transform.py',
+            'desktop\v1.11.7_multi_review_assignment_transform.py',
+            'desktop\v1.11.8_rule_dialog_review_table_transform.py'
+          )
+          foreach($script in $scripts){
+            "RUN $script" | Tee-Object -FilePath $log -Append
+            python $script 'desktop\v1.11.8_debug.pyw' 2>&1 | Tee-Object -FilePath $log -Append
+            "EXIT $LASTEXITCODE" | Tee-Object -FilePath $log -Append
+            if($LASTEXITCODE -ne 0){break}
+          }
+          "COMPILE" | Tee-Object -FilePath $log -Append
+          python -m py_compile 'desktop\v1.11.8_debug.pyw' 2>&1 | Tee-Object -FilePath $log -Append
+          "COMPILE EXIT $LASTEXITCODE" | Tee-Object -FilePath $log -Append
+          "SELF TEST" | Tee-Object -FilePath $log -Append
+          python 'desktop\v1.11.8_debug.pyw' --self-test 2>&1 | Tee-Object -FilePath $log -Append
+          "SELF TEST EXIT $LASTEXITCODE" | Tee-Object -FilePath $log -Append
+      - name: Commit diagnostic
+        shell: powershell
+        run: |
+          Remove-Item 'desktop\v1.11.8_debug.pyw' -Force -ErrorAction SilentlyContinue
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add 'desktop/V1118_TRANSFORM_DIAGNOSTIC.txt'
+          git commit -m 'Record v1.11.8 transform diagnostic [skip ci]'
+          git push
