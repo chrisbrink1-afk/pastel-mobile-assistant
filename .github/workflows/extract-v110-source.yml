@@ -1,0 +1,61 @@
+name: Extract v1.10 source snapshot
+
+on:
+  push:
+    branches:
+      - feature/v1.11-allocation-controls
+    paths:
+      - '.github/workflows/extract-v110-source.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  extract:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Reconstruct v1.9 source
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $parts=Get-ChildItem 'desktop\v1.9_parts\part*.b64' | Sort-Object Name
+          $text=[System.Text.StringBuilder]::new()
+          foreach($p in $parts){[void]$text.Append((Get-Content $p.FullName -Raw).Trim())}
+          [IO.File]::WriteAllBytes('desktop\v1.9.zip',[Convert]::FromBase64String($text.ToString()))
+          $hash=(Get-FileHash 'desktop\v1.9.zip' -Algorithm SHA256).Hash.ToLower()
+          if($hash -ne '1a34c916a907ab17d274a498118736a70a6f08764be31893e545e707edf501d7'){throw "v1.9 source hash mismatch: $hash"}
+          New-Item -ItemType Directory -Force 'desktop\v110extract' | Out-Null
+          Expand-Archive 'desktop\v1.9.zip' 'desktop\v110extract' -Force
+
+      - name: Apply verified v1.10 changes
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          python -c "import base64,gzip,pathlib,hashlib; b=gzip.decompress(base64.b64decode(pathlib.Path(r'desktop\v1.10_patch.gz.b64').read_text().strip())); assert hashlib.sha256(b).hexdigest()=='8684e43ca3b90dc5b3688af6ea0098dabf6592ef65aa8a97f4ce46473f0da217'; pathlib.Path(r'desktop\v1.10.patch').write_bytes(b)"
+          Push-Location 'desktop\v110extract\Pastel_Payment_Assistant_v1.9'
+          git apply "$env:GITHUB_WORKSPACE\desktop\v1.10.patch"
+          Pop-Location
+          $src='desktop\v110extract\Pastel_Payment_Assistant_v1.9\pastel_payment_assistant.pyw'
+          $hash=(Get-FileHash $src -Algorithm SHA256).Hash.ToLower()
+          if($hash -ne 'cd9ed5071b8f4781051b6beaf99c5b813a26ac7861c9f841b0ae9283666714c0'){throw "v1.10 Windows source hash mismatch: $hash"}
+
+      - name: Commit extracted source
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          New-Item -ItemType Directory -Force 'desktop\v1.10_source' | Out-Null
+          Copy-Item 'desktop\v110extract\Pastel_Payment_Assistant_v1.9\pastel_payment_assistant.pyw' 'desktop\v1.10_source\pastel_payment_assistant.pyw' -Force
+          if(Test-Path 'desktop\v110extract\Pastel_Payment_Assistant_v1.9\test_logic.py'){
+            Copy-Item 'desktop\v110extract\Pastel_Payment_Assistant_v1.9\test_logic.py' 'desktop\v1.10_source\test_logic.py' -Force
+          }
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add 'desktop/v1.10_source'
+          git commit -m 'Extract verified v1.10 source for v1.11 work [skip ci]'
+          if($LASTEXITCODE -eq 0){git push}
