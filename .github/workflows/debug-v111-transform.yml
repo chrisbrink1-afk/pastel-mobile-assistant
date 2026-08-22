@@ -1,0 +1,32 @@
+name: Debug v1.11 transform
+
+on:
+  push:
+    branches:
+      - feature/v1.11-allocation-controls
+    paths:
+      - '.github/workflows/debug-v111-transform.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  debug:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Run transformer and capture output
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Continue'
+          Copy-Item 'desktop\v1.10_source\pastel_payment_assistant.pyw' 'desktop\v111_debug.pyw' -Force
+          python 'desktop\v1.11_transform.py' 'desktop\v111_debug.pyw' *>&1 | Tee-Object -FilePath 'desktop\V111_TRANSFORM_LOG.txt'
+          "exit_code=$LASTEXITCODE" | Add-Content 'desktop\V111_TRANSFORM_LOG.txt'
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add 'desktop/V111_TRANSFORM_LOG.txt'
+          git commit -m 'Capture v1.11 transform diagnostics [skip ci]'
+          if($LASTEXITCODE -eq 0){git push}
