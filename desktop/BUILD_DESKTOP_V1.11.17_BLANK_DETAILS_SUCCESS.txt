@@ -1,0 +1,14 @@
+Pastel Payment Assistant v1.11.17 portable package succeeded.
+Source commit: fb47190cbff3d1e579ee0cbf8b29713a9fb93939
+Portable ZIP SHA256: 1f339814248a4f9d6f6054595ec15acb5112dc45b80368ed7128fb909360abe3
+Packaging: PyInstaller --onedir --windowed
+Blank-description STOP ORDER HANDLING FEE automatic match check: passed
+Blank-detail exact-canonical safety checks: passed
+Partial/generic blank-detail match rejection checks: passed
+Recurring identity child allocation checks: passed
+Auto and Manual additive selection checks: passed
+Grouped UI and hover help checks: passed
+Resizable and scrollable Rule dialog checks: passed
+Company profile isolation tests: passed
+Monthly sequential reference tests: passed
+Global strict identity matching tests: passed
