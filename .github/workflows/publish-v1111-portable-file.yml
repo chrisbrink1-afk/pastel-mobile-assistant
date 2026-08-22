@@ -1,0 +1,118 @@
+name: Publish Pastel Payment Assistant v1.11.1 Portable
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/publish-v1111-portable-file.yml'
+      - 'desktop/v1.11.1_strict_match_transform.py'
+
+permissions:
+  contents: write
+
+jobs:
+  publish-file:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Prepare strict-match v1.11.1 source
+        id: source
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          git fetch origin feature/v1.11-allocation-controls
+          git show origin/feature/v1.11-allocation-controls:desktop/v1.11_final.pyw | Out-File -FilePath 'desktop\v1.11.1_release.pyw' -Encoding utf8
+          python 'desktop\v1.11.1_strict_match_transform.py' 'desktop\v1.11.1_release.pyw'
+          if($LASTEXITCODE -ne 0){throw 'Strict-match transform failed'}
+          python -m py_compile 'desktop\v1.11.1_release.pyw'
+          if($LASTEXITCODE -ne 0){throw 'v1.11.1 compile failed'}
+          python 'desktop\v1.11.1_release.pyw' --self-test
+          if($LASTEXITCODE -ne 0){throw 'v1.11.1 self-test failed'}
+          $src=Get-Content 'desktop\v1.11.1_release.pyw' -Raw
+          if(!$src.Contains('APP_VERSION = "1.11.1"')){throw 'Version marker missing'}
+          if(!$src.Contains('C E BRINK must never match CHRIS BRINK')){throw 'Strict matching marker missing'}
+
+      - name: Build portable package like v1.10
+        id: build
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          python -m pip install --upgrade pyinstaller
+          if($LASTEXITCODE -ne 0){throw 'PyInstaller installation failed'}
+          New-Item -ItemType Directory -Force 'desktop\v1111repo' | Out-Null
+          Copy-Item 'desktop\v1.11.1_release.pyw' 'desktop\v1111repo\pastel_payment_assistant.pyw' -Force
+          Push-Location 'desktop\v1111repo'
+          python -m PyInstaller --noconfirm --clean --onedir --windowed --name "Pastel Payment Assistant v1.11.1" pastel_payment_assistant.pyw
+          $code=$LASTEXITCODE
+          Pop-Location
+          if($code -ne 0){throw 'PyInstaller build failed'}
+          $app='desktop\v1111repo\dist\Pastel Payment Assistant v1.11.1'
+          if(!(Test-Path $app)){throw 'Portable app folder missing'}
+          Copy-Item $app 'desktop\Pastel-Payment-Assistant-v1.11.1-Portable' -Recurse
+          @(
+            'Pastel Payment Assistant v1.11.1 - Portable Windows',
+            '',
+            'No Python installation is required.',
+            'Keep this entire folder together.',
+            'Run: Pastel Payment Assistant v1.11.1.exe',
+            '',
+            'Built using the same PyInstaller --onedir --windowed packaging method as v1.10.',
+            'v1.10 rules-backup CSV files remain compatible.',
+            '',
+            'v1.11.1 matching hotfix:',
+            '- SMART rules match whole name tokens in sequence.',
+            '- Reference numbers must match when present in the saved rule.',
+            '- Transaction type text is excluded from SMART identity matching.',
+            '- Example: C E BRINK will not auto-allocate CHRIS BRINK.'
+          ) | Set-Content 'desktop\Pastel-Payment-Assistant-v1.11.1-Portable\README.txt'
+          Compress-Archive 'desktop\Pastel-Payment-Assistant-v1.11.1-Portable' 'desktop\Pastel-Payment-Assistant-v1.11.1-Portable.zip' -Force
+          $hash=(Get-FileHash 'desktop\Pastel-Payment-Assistant-v1.11.1-Portable.zip' -Algorithm SHA256).Hash.ToLower()
+          "SHA256=$hash" | Set-Content 'desktop\Pastel-Payment-Assistant-v1.11.1-Portable.sha256.txt'
+          if((Get-Item 'desktop\Pastel-Payment-Assistant-v1.11.1-Portable.zip').Length -ge 100MB){throw 'Portable ZIP too large'}
+
+      - name: Commit portable ZIP to main
+        id: commit
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          Remove-Item 'desktop\Pastel-Payment-Assistant-v1.11.1-Portable' -Recurse -Force
+          Remove-Item 'desktop\v1111repo' -Recurse -Force
+          Remove-Item 'desktop\v1.11.1_release.pyw' -Force
+          $hash=(Get-FileHash 'desktop\Pastel-Payment-Assistant-v1.11.1-Portable.zip' -Algorithm SHA256).Hash.ToLower()
+          @(
+            'Pastel Payment Assistant v1.11.1 strict-match portable package succeeded.',
+            "Source commit: $env:GITHUB_SHA",
+            "Portable ZIP SHA256: $hash",
+            'Packaging: PyInstaller --onedir --windowed (same method as v1.10)',
+            'Strict SMART matching tests: passed'
+          ) | Set-Content 'desktop\BUILD_DESKTOP_V1.11.1_STRICT_MATCH_SUCCESS.txt'
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add 'desktop/Pastel-Payment-Assistant-v1.11.1-Portable.zip' 'desktop/Pastel-Payment-Assistant-v1.11.1-Portable.sha256.txt' 'desktop/BUILD_DESKTOP_V1.11.1_STRICT_MATCH_SUCCESS.txt'
+          git commit -m 'Publish Pastel Payment Assistant v1.11.1 strict-match portable [skip ci]'
+          git push
+
+      - name: Record failure status
+        if: failure()
+        shell: powershell
+        run: |
+          @(
+            'Pastel Payment Assistant v1.11.1 strict-match package failed.',
+            'source=${{ steps.source.outcome }}',
+            'build=${{ steps.build.outcome }}',
+            'commit=${{ steps.commit.outcome }}'
+          ) | Set-Content 'desktop\BUILD_DESKTOP_V1.11.1_STRICT_MATCH_FAILURE.txt'
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add 'desktop/BUILD_DESKTOP_V1.11.1_STRICT_MATCH_FAILURE.txt'
+          git commit -m 'Record v1.11.1 strict-match package failure [skip ci]'
+          if($LASTEXITCODE -eq 0){git push}
