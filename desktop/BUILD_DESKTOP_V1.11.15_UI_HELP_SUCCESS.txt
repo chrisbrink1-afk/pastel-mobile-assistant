@@ -1,0 +1,16 @@
+Pastel Payment Assistant v1.11.15 portable package succeeded.
+Source commit: 6ee0fde7d40d4ae9f4107067dec0f95d2e2f1d78
+Portable ZIP SHA256: bc9c5f220e018a1e4a62a600e72a860bd4054047806d0f1c046bffe2151c6c86
+Packaging: PyInstaller --onedir --windowed
+Auto selection preserves manual selections check: passed
+Manual selection preserves auto selections check: passed
+Both categories can be selected together check: passed
+Grouped user-friendly UI check: passed
+Hover ? help control check: passed
+Rule-field hover help check: passed
+Saved-rule edits remain automatic allocation check: passed
+Resizable and scrollable Rule dialog checks: passed
+Always-visible Assign selected toolbar check: passed
+Company profile isolation tests: passed
+Monthly sequential reference tests: passed
+Global strict identity matching tests: passed
