@@ -1,0 +1,6 @@
+Pastel Payment Assistant v1.11.3 portable package succeeded.
+Source commit: 02a7af875d1d10419615e7671dbbf2319f9d4941
+Portable ZIP SHA256: 5870f1fe6e2f3b1e96dfc71a379480a3ff68f0f222d3edccb677053a2db3a987
+Packaging: PyInstaller --onedir --windowed (same method as v1.10)
+Alternative amount-based description tests: passed
+Global strict identity matching tests: passed
