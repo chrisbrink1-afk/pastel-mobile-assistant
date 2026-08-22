@@ -1,0 +1,17 @@
+Pastel Payment Assistant v1.11.20 Personal and v2.0.1 Clean packages succeeded.
+Source commit: 197eeca501508faaacb3fda45f30bd6b06826ea8
+v1.11.20 Personal ZIP SHA256: c3e1d06d1a7ef6d8c511302ae93f3b5ca4fac6485fc71f6b1af1c530b154e1b9
+v2.0.1 Clean ZIP SHA256: abdd5df94e170e640312d5e717f3e5f830119a59aac2de6c40e2f569b3034dab
+Packaging: PyInstaller --onedir --windowed
+Mary Hartslief six-variant recurring identity check: passed
+Mary recurrence count x6 check: passed
+Individual Mary allocation independence check: passed
+Autosaved-session recurrence recalculation check: passed
+Recurring history upsert/migration check: passed
+Strict allocation matcher remains separate check: passed
+Receipt positive Pastel Bank Amount checks: passed
+Blank-description STOP ORDER HANDLING FEE checks: passed
+Auto and Manual additive selection checks: passed
+Grouped UI and hover help checks: passed
+Company profile isolation tests: passed
+v2.0.1 clean AppData isolation check: passed
