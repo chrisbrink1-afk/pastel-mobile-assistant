@@ -28,6 +28,30 @@ def app_data_dir() -> Path:
     return p
 
 DB_PATH = app_data_dir() / "pastel_payment_assistant.db"
+SETTINGS_TRANSFER_KEYS = ("contra_account", "vat_tax_type", "vat_rate", "fiscal_start_month", "project_code")
+
+
+def read_settings_transfer(path: str) -> Dict[str, str]:
+    p = Path(path)
+    if p.suffix.lower() == ".db":
+        conn = sqlite3.connect(p)
+        try:
+            rows = conn.execute("SELECT key, value FROM settings").fetchall()
+        finally:
+            conn.close()
+        raw = {str(k): str(v) for k, v in rows}
+    else:
+        with open(p, "r", encoding="utf-8-sig") as f:
+            data = json.load(f)
+        if not isinstance(data, dict):
+            raise ValueError("Settings backup must contain a JSON object.")
+        raw = data.get("settings", data)
+        if not isinstance(raw, dict):
+            raise ValueError("Settings backup does not contain a settings object.")
+    out = {k: str(raw[k]) for k in SETTINGS_TRANSFER_KEYS if k in raw}
+    if not out:
+        raise ValueError("No compatible Pastel Payment Assistant settings were found in this file.")
+    return out
 
 
 def D(value) -> Decimal:
@@ -1280,10 +1304,17 @@ class App(tk.Tk):
             ttk.Label(f, text=label, font=("Segoe UI", 10, "bold")).grid(row=i*2, column=0, sticky="w", pady=(6, 0))
             ttk.Entry(f, textvariable=self.setting_vars[key], width=24).grid(row=i*2, column=1, sticky="w", padx=14, pady=(6, 0))
             ttk.Label(f, text=helptext, wraplength=700, foreground="#555555").grid(row=i*2+1, column=0, columnspan=3, sticky="w", pady=(0, 6))
-        ttk.Button(f, text="Save settings", command=self.save_settings, style="Accent.TButton").grid(row=len(rows)*2, column=0, sticky="w", pady=16)
+        buttons = ttk.Frame(f)
+        buttons.grid(row=len(rows)*2, column=0, columnspan=3, sticky="w", pady=16)
+        ttk.Button(buttons, text="Save settings", command=self.save_settings, style="Accent.TButton").pack(side="left", padx=(0,8))
+        ttk.Button(buttons, text="Export settings backup…", command=self.export_settings_backup).pack(side="left", padx=4)
+        ttk.Button(buttons, text="Import settings backup / v1.10 database…", command=self.import_settings_backup).pack(side="left", padx=4)
+        transfer_note = ("Upgrading from v1.10 to v1.11 on the same Windows PC keeps these settings automatically because both versions use the same settings database. "
+                         "For another PC, Import Settings can read either a v1.11 JSON settings backup or a copied v1.10 pastel_payment_assistant.db file.")
+        ttk.Label(f, text=transfer_note, wraplength=820, foreground="#555555").grid(row=len(rows)*2+1, column=0, columnspan=3, sticky="w", pady=(0,8))
         note = ("The app creates review-first Pastel cash-book import files. Selected outgoing rows are exported to a Payments CSV; "
                 "selected incoming rows are exported to a Receipts CSV. Review each imported batch in Pastel before Update/Process.")
-        ttk.Label(f, text=note, wraplength=820).grid(row=len(rows)*2+1, column=0, columnspan=3, sticky="w")
+        ttk.Label(f, text=note, wraplength=820).grid(row=len(rows)*2+2, column=0, columnspan=3, sticky="w")
 
     def settings_dict(self):
         return {k: v.get().strip() for k, v in self.setting_vars.items()}
@@ -1295,6 +1326,57 @@ class App(tk.Tk):
             self.reapply_rules(silent=True)
         if not quiet:
             messagebox.showinfo(APP_NAME, "Settings saved.")
+
+    def export_settings_backup(self):
+        self.save_settings(quiet=True)
+        p = filedialog.asksaveasfilename(
+            title="Export settings backup",
+            defaultextension=".json",
+            filetypes=[("Pastel settings backup", "*.json"), ("All files", "*.*")],
+            initialfile="Pastel_Payment_Assistant_Settings_Backup.json",
+        )
+        if not p:
+            return
+        data = {
+            "format": "PastelPaymentAssistantSettings",
+            "format_version": 1,
+            "app_version": APP_VERSION,
+            "settings": {k: self.store.get_setting(k, "") for k in SETTINGS_TRANSFER_KEYS},
+        }
+        try:
+            with open(p, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+        except Exception as e:
+            messagebox.showerror(APP_NAME, f"Could not export settings backup:\n{e}")
+            return
+        messagebox.showinfo(APP_NAME, f"Settings backup saved:\n{p}")
+
+    def import_settings_backup(self):
+        p = filedialog.askopenfilename(
+            title="Import settings backup or v1.10 database",
+            filetypes=[
+                ("Pastel settings backup / database", "*.json *.db"),
+                ("JSON settings backup", "*.json"),
+                ("Pastel Payment Assistant database", "*.db"),
+                ("All files", "*.*"),
+            ],
+        )
+        if not p:
+            return
+        try:
+            incoming = read_settings_transfer(p)
+        except Exception as e:
+            messagebox.showerror(APP_NAME, f"Could not import settings:\n{e}")
+            return
+        preview = "\n".join(f"{k}: {incoming.get(k, '')}" for k in SETTINGS_TRANSFER_KEYS if k in incoming)
+        if not messagebox.askyesno(APP_NAME, "Import these settings and replace the current values?\n\n" + preview):
+            return
+        for k, value in incoming.items():
+            if k in self.setting_vars:
+                self.setting_vars[k].set(value)
+        self.save_settings(quiet=True)
+        source = "v1.10 database" if Path(p).suffix.lower() == ".db" else "settings backup"
+        messagebox.showinfo(APP_NAME, f"Imported {len(incoming)} setting(s) from the {source}.\n\nThe imported values are now active in v1.11.")
 
     def load_csv(self):
         start = self.store.get_setting("last_folder", str(Path.home()))

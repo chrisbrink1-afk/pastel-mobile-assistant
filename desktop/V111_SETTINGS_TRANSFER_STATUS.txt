@@ -1,0 +1,5 @@
+Pastel Payment Assistant v1.11 settings transfer patch status
+Source commit: e4bd96c6135edf1f6ba2b9de7675d5948a08311f
+patch=success
+test=failure
+transfer_test=skipped
