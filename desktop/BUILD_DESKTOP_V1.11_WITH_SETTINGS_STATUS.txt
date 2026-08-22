@@ -1,0 +1,11 @@
+Pastel Payment Assistant v1.11 final Windows build status
+Source commit: 2a525bc9d540078de5c75d330b99398c4ff34165
+patch=success
+test=failure
+transfer_test=skipped
+verify=skipped
+install=skipped
+pyinstaller=skipped
+package=skipped
+upload=skipped
+release=skipped
