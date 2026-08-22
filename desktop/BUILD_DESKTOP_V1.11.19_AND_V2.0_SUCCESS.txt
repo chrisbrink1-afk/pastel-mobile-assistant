@@ -1,0 +1,20 @@
+Pastel Payment Assistant v1.11.19 Personal and v2.0 Clean packages succeeded.
+Source commit: d5eae9bfae38b5fd7fa966505a489b69d52d3631
+v1.11.19 Personal ZIP SHA256: 60520c89c022d26e5fe33c5a4fc4131daec05fce4f55a4a20a86b57ba8181d9d
+v2.0 Clean ZIP SHA256: 4bf85e7952cf2cd79b64d0272d30d90052744bd4b82694d78aee6f2849a47b14
+Packaging: PyInstaller --onedir --windowed
+Profile-scoped autosave/restore transaction snapshot tests: passed
+Save-on-exit and restore-on-launch source checks: passed
+Personal existing AppData compatibility check: passed
+Personal optional private-rules bootstrap guard check: passed
+v2.0 isolated clean AppData namespace check: passed
+v2.0 private bootstrap disabled check: passed
+Receipt positive Pastel Bank Amount regression checks: passed
+Receipt VAT sign and no-negative-zero checks: passed
+Blank-description STOP ORDER HANDLING FEE checks: passed
+Auto and Manual additive selection checks: passed
+Grouped UI and hover help checks: passed
+Resizable and scrollable Rule dialog checks: passed
+Company profile isolation tests: passed
+Monthly sequential reference tests: passed
+Global strict identity matching tests: passed
