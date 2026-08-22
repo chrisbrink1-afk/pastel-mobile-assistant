@@ -1,0 +1,151 @@
+name: Build Pastel Payment Assistant v1.11 Final
+
+on:
+  push:
+    branches:
+      - feature/v1.11-allocation-controls
+    paths:
+      - '.github/workflows/build-desktop-v111-final.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Validate v1.11 candidate
+        id: test
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $src='desktop\v1.11_candidate.pyw'
+          if(!(Test-Path $src)){throw 'v1.11 candidate source is missing'}
+          python -m py_compile $src
+          if($LASTEXITCODE -ne 0){throw 'Python source validation failed'}
+          python $src --self-test | Tee-Object -FilePath 'desktop\V111_SELF_TEST.txt'
+          if($LASTEXITCODE -ne 0){throw 'v1.11 self-test failed'}
+
+      - name: Verify requested features
+        id: verify
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $src = Get-Content 'desktop\v1.11_candidate.pyw' -Raw
+          @(
+            'APP_VERSION = "1.11.0"',
+            'Select Auto-Allocated',
+            'Correct auto-allocation',
+            'Use amount-based allocation rule',
+            'Pastel description',
+            'amount_condition_matches',
+            'Corrected allocation',
+            'amount_account',
+            'auto_allocated'
+          ) | ForEach-Object {
+            if(!$src.Contains($_)){throw "Missing feature marker: $_"}
+          }
+
+      - name: Install PyInstaller
+        id: install
+        shell: powershell
+        run: |
+          python -m pip install --upgrade pyinstaller
+          if($LASTEXITCODE -ne 0){throw 'PyInstaller installation failed'}
+
+      - name: Build portable folder
+        id: pyinstaller
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          New-Item -ItemType Directory -Force 'desktop\v111final' | Out-Null
+          Copy-Item 'desktop\v1.11_candidate.pyw' 'desktop\v111final\pastel_payment_assistant.pyw' -Force
+          Push-Location 'desktop\v111final'
+          python -m PyInstaller --noconfirm --clean --onedir --windowed --name "Pastel Payment Assistant v1.11" pastel_payment_assistant.pyw
+          $code=$LASTEXITCODE
+          Pop-Location
+          if($code -ne 0){throw 'PyInstaller build failed'}
+
+      - name: Package portable ZIP
+        id: package
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $src='desktop\v111final\dist\Pastel Payment Assistant v1.11'
+          if(!(Test-Path $src)){throw 'Portable application folder was not created'}
+          Copy-Item $src 'Pastel-Payment-Assistant-v1.11-Portable' -Recurse
+          @(
+            'Pastel Payment Assistant v1.11 - Portable Windows',
+            '',
+            'No Python installation is required.',
+            'Keep this entire folder together.',
+            'Run: Pastel Payment Assistant v1.11.exe',
+            '',
+            'New in v1.11:',
+            '- Assign a Pastel description to saved rules and one-off transactions.',
+            '- Optional amount-based GL allocation: <, <=, >, >= or = a chosen amount.',
+            '- Select Auto-Allocated ticks only untouched automatic allocations.',
+            '- Correct a false auto-allocation and optionally update its saved rule for future matches.',
+            '- Corrected rows are visibly marked and stay out of Select Auto-Allocated until reset to the saved rule.',
+            '',
+            'The Cash Book bank GL remains the batch-level Pastel import column L setting.',
+            '',
+            'If corporate endpoint security blocks the application, ask IT/security to review or allow it rather than disabling security controls.'
+          ) | Set-Content 'Pastel-Payment-Assistant-v1.11-Portable\README.txt'
+          Compress-Archive 'Pastel-Payment-Assistant-v1.11-Portable' 'Pastel-Payment-Assistant-v1.11-Portable.zip' -Force
+          $hash=(Get-FileHash 'Pastel-Payment-Assistant-v1.11-Portable.zip' -Algorithm SHA256).Hash.ToLower()
+          "SHA256=$hash" | Set-Content 'Pastel-Payment-Assistant-v1.11-Portable.sha256.txt'
+
+      - name: Upload build artifact
+        id: upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: Pastel-Payment-Assistant-v1.11-Portable-Windows
+          path: |
+            Pastel-Payment-Assistant-v1.11-Portable.zip
+            Pastel-Payment-Assistant-v1.11-Portable.sha256.txt
+
+      - name: Publish v1.11 release
+        id: release
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete desktop-v1.11-portable --cleanup-tag -y 2>$null
+          gh release create desktop-v1.11-portable Pastel-Payment-Assistant-v1.11-Portable.zip Pastel-Payment-Assistant-v1.11-Portable.sha256.txt --title "Pastel Payment Assistant v1.11 - Portable Windows" --notes "Adds Pastel transaction descriptions, optional amount-based GL allocation rules, Select Auto-Allocated, and false auto-allocation correction with optional saved-rule updates. Corrected rows remain visibly marked and are excluded from Select Auto-Allocated until reset."
+          if($LASTEXITCODE -ne 0){throw 'GitHub release creation failed'}
+
+      - name: Record build status
+        if: always()
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Continue'
+          $lines=@(
+            'Pastel Payment Assistant v1.11 final portable Windows build status',
+            "Source commit: $env:GITHUB_SHA",
+            'test=${{ steps.test.outcome }}',
+            'verify=${{ steps.verify.outcome }}',
+            'install=${{ steps.install.outcome }}',
+            'pyinstaller=${{ steps.pyinstaller.outcome }}',
+            'package=${{ steps.package.outcome }}',
+            'upload=${{ steps.upload.outcome }}',
+            'release=${{ steps.release.outcome }}'
+          )
+          if(Test-Path 'Pastel-Payment-Assistant-v1.11-Portable.zip'){
+            $hash=(Get-FileHash 'Pastel-Payment-Assistant-v1.11-Portable.zip' -Algorithm SHA256).Hash.ToLower()
+            $lines += "Portable ZIP SHA256: $hash"
+          }
+          $lines | Set-Content 'desktop\BUILD_DESKTOP_V1.11_FINAL_STATUS.txt'
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add 'desktop/BUILD_DESKTOP_V1.11_FINAL_STATUS.txt'
+          if(Test-Path 'desktop\V111_SELF_TEST.txt'){git add 'desktop/V111_SELF_TEST.txt'}
+          git commit -m 'Record v1.11 final portable build status [skip ci]'
+          if($LASTEXITCODE -eq 0){git push}
