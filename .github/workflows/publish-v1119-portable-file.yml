@@ -2,6 +2,8 @@ name: Publish Pastel Payment Assistant v1.11.9 Portable
 
 on:
   workflow_dispatch:
+  schedule:
+    - cron: '25 18 22 8 *'
   push:
     branches:
       - main
