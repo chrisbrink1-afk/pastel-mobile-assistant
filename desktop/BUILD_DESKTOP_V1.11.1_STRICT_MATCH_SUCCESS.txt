@@ -1,0 +1,5 @@
+Pastel Payment Assistant v1.11.1 strict-match portable package succeeded.
+Source commit: b4816a81c6dce2f075802baec274e8e1a68cdf1a
+Portable ZIP SHA256: 58b292de1ca2acbce18feef20e808c223ec3ea408a4966ef56d421113d43db9d
+Packaging: PyInstaller --onedir --windowed (same method as v1.10)
+Strict SMART matching tests: passed
