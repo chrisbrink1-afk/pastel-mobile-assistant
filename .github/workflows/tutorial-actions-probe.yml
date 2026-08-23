@@ -1,0 +1,105 @@
+name: Tutorial Actions one-shot probe
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/tutorial-actions-probe.yml'
+  schedule:
+    - cron: '*/5 * * * *'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: tutorial-actions-probe
+  cancel-in-progress: false
+
+jobs:
+  probe:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Record run identity immediately
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          @(
+            'Tutorial Actions probe started.',
+            "Run ID: $env:GITHUB_RUN_ID",
+            "Attempt: $env:GITHUB_RUN_ATTEMPT",
+            "Commit: $env:GITHUB_SHA"
+          ) | Set-Content 'desktop\TUTORIAL_ACTIONS_PROBE_START.txt'
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -f 'desktop/TUTORIAL_ACTIONS_PROBE_START.txt'
+          git commit -m 'Record tutorial Actions probe run [skip ci]'
+          git push origin HEAD:main
+
+      - name: Recreate and self-test Personal tutorial source
+        id: personal
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          git fetch origin feature/v1.11-allocation-controls
+          git show origin/feature/v1.11-allocation-controls:desktop/v1.11_final.pyw | Out-File -FilePath 'desktop\probe_personal.pyw' -Encoding utf8
+          $transforms = @(
+            'v1.11.1_strict_match_transform.py','v1.11.2_global_match_transform.py','v1.11.3_amount_description_transform.py','v1.11.4_amount_review_transform.py','v1.11.5_sequential_reference_transform.py','v1.11.6_profiles_transform.py','v1.11.7_multi_review_assignment_transform.py','v1.11.8_pre_remove_main_review_method.py','v1.11.8_rule_dialog_review_table_transform.py','v1.11.9_visible_rule_assignment_transform.py','v1.11.10_resizable_rule_dialog_transform.py','v1.11.11_scrollable_rule_dialog_transform.py','v1.11.12_rule_edits_stay_auto_transform.py','v1.11.13_select_manual_allocations_transform.py','v1.11.14_additive_allocation_selection_transform.py','v1.11.15_user_friendly_help_transform.py','v1.11.16_recurring_identity_apply_transform.py','v1.11.17_blank_details_identity_transform.py','v1.11.18_receipt_bank_sign_transform.py','v1.11.19_autosave_session_transform.py','v1.11.20_recurring_payee_identity_transform.py','v1.11.21_modern_classic_ui_transform.py','v1.11.22_adaptive_tutorial_transform.py','v1.11.22_tutorial_classic_restore_transform.py'
+          )
+          foreach($t in $transforms){
+            Write-Host "TRANSFORM $t"
+            python (Join-Path 'desktop' $t) 'desktop\probe_personal.pyw'
+            if($LASTEXITCODE -ne 0){throw "FAILED TRANSFORM: $t"}
+          }
+          python -m py_compile 'desktop\probe_personal.pyw'
+          if($LASTEXITCODE -ne 0){throw 'PERSONAL COMPILE FAILED'}
+          python 'desktop\probe_personal.pyw' --self-test
+          if($LASTEXITCODE -ne 0){throw 'PERSONAL SELF-TEST FAILED'}
+
+      - name: Recreate and self-test Clean tutorial source
+        id: clean
+        if: always()
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          if(!(Test-Path 'desktop\probe_personal.pyw')){ throw 'PERSONAL SOURCE WAS NOT CREATED' }
+          Copy-Item 'desktop\probe_personal.pyw' 'desktop\probe_clean.pyw' -Force
+          python 'desktop\v2.2_clean_feedback_transform.py' 'desktop\probe_clean.pyw'
+          if($LASTEXITCODE -ne 0){throw 'CLEAN TRANSFORM FAILED'}
+          python -m py_compile 'desktop\probe_clean.pyw'
+          if($LASTEXITCODE -ne 0){throw 'CLEAN COMPILE FAILED'}
+          python 'desktop\probe_clean.pyw' --self-test
+          if($LASTEXITCODE -ne 0){throw 'CLEAN SELF-TEST FAILED'}
+
+      - name: Record outcomes and remove probe
+        if: always()
+        shell: powershell
+        env:
+          PERSONAL_OUTCOME: ${{ steps.personal.outcome }}
+          CLEAN_OUTCOME: ${{ steps.clean.outcome }}
+        run: |
+          $ErrorActionPreference='Stop'
+          @(
+            'Tutorial Actions one-shot probe result',
+            "Run ID: $env:GITHUB_RUN_ID",
+            "Attempt: $env:GITHUB_RUN_ATTEMPT",
+            "Commit: $env:GITHUB_SHA",
+            "Personal source/self-test: $env:PERSONAL_OUTCOME",
+            "Clean source/self-test: $env:CLEAN_OUTCOME"
+          ) | Set-Content 'desktop\TUTORIAL_ACTIONS_PROBE_RESULT.txt'
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git pull --rebase origin main
+          git add -f 'desktop/TUTORIAL_ACTIONS_PROBE_RESULT.txt'
+          git rm '.github/workflows/tutorial-actions-probe.yml'
+          git commit -m 'Record tutorial Actions probe result [skip ci]'
+          git push origin main
