@@ -161,6 +161,13 @@ def exercise_ui(path: Path, name: str, expect_clean: bool) -> None:
                     win.destroy()
             except Exception:
                 pass
+            try:
+                store = getattr(app, "store", None)
+                conn = getattr(store, "conn", None)
+                if conn is not None:
+                    conn.close()
+            except Exception:
+                pass
             app.destroy()
             sys.modules.pop(name, None)
 
