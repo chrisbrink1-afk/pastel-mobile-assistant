@@ -1,0 +1,143 @@
+name: Diagnose v1.11.22 and v2.2 Tutorial Build
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/diagnose-v11122-v22-tutorial.yml'
+  schedule:
+    - cron: '*/5 * * * *'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: diagnose-v11122-v22-tutorial
+  cancel-in-progress: false
+
+jobs:
+  diagnose:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Personal source transforms and self-test
+        id: personal
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          git fetch origin feature/v1.11-allocation-controls
+          git show origin/feature/v1.11-allocation-controls:desktop/v1.11_final.pyw | Out-File -FilePath 'desktop\diag_personal.pyw' -Encoding utf8
+          $transforms = @(
+            'v1.11.1_strict_match_transform.py','v1.11.2_global_match_transform.py','v1.11.3_amount_description_transform.py','v1.11.4_amount_review_transform.py','v1.11.5_sequential_reference_transform.py','v1.11.6_profiles_transform.py','v1.11.7_multi_review_assignment_transform.py','v1.11.8_pre_remove_main_review_method.py','v1.11.8_rule_dialog_review_table_transform.py','v1.11.9_visible_rule_assignment_transform.py','v1.11.10_resizable_rule_dialog_transform.py','v1.11.11_scrollable_rule_dialog_transform.py','v1.11.12_rule_edits_stay_auto_transform.py','v1.11.13_select_manual_allocations_transform.py','v1.11.14_additive_allocation_selection_transform.py','v1.11.15_user_friendly_help_transform.py','v1.11.16_recurring_identity_apply_transform.py','v1.11.17_blank_details_identity_transform.py','v1.11.18_receipt_bank_sign_transform.py','v1.11.19_autosave_session_transform.py','v1.11.20_recurring_payee_identity_transform.py','v1.11.21_modern_classic_ui_transform.py','v1.11.22_adaptive_tutorial_transform.py','v1.11.22_tutorial_classic_restore_transform.py'
+          )
+          foreach($t in $transforms){
+            Write-Host "RUNNING TRANSFORM: $t"
+            python (Join-Path 'desktop' $t) 'desktop\diag_personal.pyw'
+            if($LASTEXITCODE -ne 0){throw "TRANSFORM FAILED: $t"}
+          }
+          python -m py_compile 'desktop\diag_personal.pyw'
+          if($LASTEXITCODE -ne 0){throw 'PERSONAL COMPILE FAILED'}
+          python 'desktop\diag_personal.pyw' --self-test
+          if($LASTEXITCODE -ne 0){throw 'PERSONAL SELF-TEST FAILED'}
+
+      - name: Clean transform and self-test
+        id: clean
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          Copy-Item 'desktop\diag_personal.pyw' 'desktop\diag_clean.pyw' -Force
+          python 'desktop\v2.2_clean_feedback_transform.py' 'desktop\diag_clean.pyw'
+          if($LASTEXITCODE -ne 0){throw 'CLEAN TRANSFORM FAILED'}
+          python -m py_compile 'desktop\diag_clean.pyw'
+          if($LASTEXITCODE -ne 0){throw 'CLEAN COMPILE FAILED'}
+          python 'desktop\diag_clean.pyw' --self-test
+          if($LASTEXITCODE -ne 0){throw 'CLEAN SELF-TEST FAILED'}
+
+      - name: Tutorial UI smoke
+        id: smoke
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $py = @'
+import importlib.machinery
+import importlib.util
+import os
+import tempfile
+from pathlib import Path
+
+
+def load_module(path, name, appdata):
+    os.environ['APPDATA'] = str(appdata)
+    loader = importlib.machinery.SourceFileLoader(name, path)
+    spec = importlib.util.spec_from_loader(name, loader)
+    mod = importlib.util.module_from_spec(spec)
+    loader.exec_module(mod)
+    return mod
+
+
+def exercise(path, name):
+    with tempfile.TemporaryDirectory() as td:
+        mod = load_module(path, name, Path(td))
+        app = mod.App()
+        app.withdraw()
+        app.update_idletasks()
+        assert app.ui_mode == 'modern'
+        assert mod.should_auto_start_tutorial(app.store) is True
+        assert mod.search_tutorial_topics('orange transaction')[0]['id'] == 'orange'
+        assert mod.search_tutorial_topics('receipt negative')[0]['id'] == 'receipt_sign'
+        app.start_tutorial(auto=False)
+        app.update_idletasks()
+        assert app.tutorial_window.winfo_exists()
+        app.tutorial_search_var.set('wrong gl')
+        app._tutorial_search(); app.update_idletasks()
+        assert app.tutorial_title_var.get() == 'An automatic allocation used the wrong GL'
+        app._tutorial_close(); app.update_idletasks()
+        app._apply_ui_mode('classic'); app.update_idletasks()
+        app.start_tutorial(auto=False); app.update_idletasks()
+        assert app.ui_mode == 'modern'
+        app._tutorial_close(); app.update_idletasks()
+        assert app.ui_mode == 'classic'
+        app.destroy()
+
+exercise(r'desktop\diag_personal.pyw', 'diag_personal')
+exercise(r'desktop\diag_clean.pyw', 'diag_clean')
+print('TUTORIAL UI SMOKE PASSED')
+'@
+          $py | Set-Content 'desktop\diag_tutorial_smoke.py'
+          python 'desktop\diag_tutorial_smoke.py'
+          if($LASTEXITCODE -ne 0){throw 'TUTORIAL UI SMOKE FAILED'}
+
+      - name: Record diagnostic result
+        if: always()
+        shell: powershell
+        env:
+          PERSONAL_OUTCOME: ${{ steps.personal.outcome }}
+          CLEAN_OUTCOME: ${{ steps.clean.outcome }}
+          SMOKE_OUTCOME: ${{ steps.smoke.outcome }}
+        run: |
+          $ErrorActionPreference='Stop'
+          @(
+            'Pastel Payment Assistant v1.11.22 / v2.2 diagnostic result',
+            "Run ID: $env:GITHUB_RUN_ID",
+            "Run attempt: $env:GITHUB_RUN_ATTEMPT",
+            "Commit: $env:GITHUB_SHA",
+            "Personal source/self-test: $env:PERSONAL_OUTCOME",
+            "Clean source/self-test: $env:CLEAN_OUTCOME",
+            "Tutorial UI smoke: $env:SMOKE_OUTCOME"
+          ) | Set-Content 'desktop\BUILD_DESKTOP_V1.11.22_AND_V2.2_DIAGNOSTIC.txt'
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git pull --rebase origin main
+          git add -f 'desktop/BUILD_DESKTOP_V1.11.22_AND_V2.2_DIAGNOSTIC.txt'
+          git rm '.github/workflows/diagnose-v11122-v22-tutorial.yml'
+          git commit -m 'Record v1.11.22 v2.2 tutorial diagnostic [skip ci]'
+          git push origin main
