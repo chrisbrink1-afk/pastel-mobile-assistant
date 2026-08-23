@@ -1,0 +1,22 @@
+Pastel Payment Assistant v1.11.22 Personal and v2.2 Clean portable packages succeeded.
+Source/build commit: f45c21f7f0835dfff9fd9736dda4848aa75e42d3
+GitHub Actions run ID: 32612322630
+Personal ZIP SHA256: 1aadb1ff656c687f3af63a9cd6febb6ae3feb58bc50239a7f25e2d5a2c7ef8fe
+Clean ZIP SHA256: 9387b38d981aacf271b739216e41d8858f5dcc6ae71e6e8cc70f4d484d1b6970
+Packaging: PyInstaller --onedir --windowed
+Personal transform/compile/self-test: passed
+Clean transform/compile/self-test: passed
+Personal tutorial Windows UI smoke: passed
+Clean tutorial Windows UI smoke: passed
+Adaptive tutorial path check: passed
+Searchable help query checks: passed
+Modern to Classic to Modern navigation check: passed
+Classic tutorial return-to-Classic check: passed
+Autosave/session check: passed
+Personal AppData backward-compatibility check: passed
+Clean AppData isolation check: passed
+Receipt positive Pastel Bank Amount regression: passed
+Blank-description STOP ORDER regression: passed
+Mary Hartslief recurring-payee regression: passed
+Additive Auto and Manual selection regressions: passed
+Strict allocation matching regressions: passed
