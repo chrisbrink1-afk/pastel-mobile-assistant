@@ -79,7 +79,14 @@ def load_module(path: Path, name: str, appdata: Path):
     if spec is None:
         raise RuntimeError(f"Could not create module spec for {path}")
     module = importlib.util.module_from_spec(spec)
-    loader.exec_module(module)
+    # Python 3.12 dataclasses expect the module to already exist in
+    # sys.modules while class annotations are being resolved.
+    sys.modules[name] = module
+    try:
+        loader.exec_module(module)
+    except Exception:
+        sys.modules.pop(name, None)
+        raise
     return module
 
 
@@ -155,6 +162,7 @@ def exercise_ui(path: Path, name: str, expect_clean: bool) -> None:
             except Exception:
                 pass
             app.destroy()
+            sys.modules.pop(name, None)
 
 
 def main() -> int:
