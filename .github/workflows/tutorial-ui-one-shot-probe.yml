@@ -1,0 +1,177 @@
+name: Tutorial UI one-shot probe
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/tutorial-ui-one-shot-probe.yml'
+  schedule:
+    - cron: '*/5 * * * *'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: tutorial-ui-one-shot-probe
+  cancel-in-progress: false
+
+jobs:
+  probe:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Record run identity
+        shell: powershell
+        run: |
+          @(
+            'Tutorial UI probe started.',
+            "Run ID: $env:GITHUB_RUN_ID",
+            "Attempt: $env:GITHUB_RUN_ATTEMPT",
+            "Commit: $env:GITHUB_SHA"
+          ) | Set-Content 'desktop\TUTORIAL_UI_PROBE_START.txt'
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -f 'desktop/TUTORIAL_UI_PROBE_START.txt'
+          git commit -m 'Record tutorial UI probe run [skip ci]'
+          git push origin HEAD:main
+
+      - name: Prepare Personal and Clean sources
+        id: prepare
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          git fetch origin feature/v1.11-allocation-controls
+          git show origin/feature/v1.11-allocation-controls:desktop/v1.11_final.pyw | Out-File -FilePath 'desktop\ui_personal.pyw' -Encoding utf8
+          $transforms = @(
+            'v1.11.1_strict_match_transform.py','v1.11.2_global_match_transform.py','v1.11.3_amount_description_transform.py','v1.11.4_amount_review_transform.py','v1.11.5_sequential_reference_transform.py','v1.11.6_profiles_transform.py','v1.11.7_multi_review_assignment_transform.py','v1.11.8_pre_remove_main_review_method.py','v1.11.8_rule_dialog_review_table_transform.py','v1.11.9_visible_rule_assignment_transform.py','v1.11.10_resizable_rule_dialog_transform.py','v1.11.11_scrollable_rule_dialog_transform.py','v1.11.12_rule_edits_stay_auto_transform.py','v1.11.13_select_manual_allocations_transform.py','v1.11.14_additive_allocation_selection_transform.py','v1.11.15_user_friendly_help_transform.py','v1.11.16_recurring_identity_apply_transform.py','v1.11.17_blank_details_identity_transform.py','v1.11.18_receipt_bank_sign_transform.py','v1.11.19_autosave_session_transform.py','v1.11.20_recurring_payee_identity_transform.py','v1.11.21_modern_classic_ui_transform.py','v1.11.22_adaptive_tutorial_transform.py','v1.11.22_tutorial_classic_restore_transform.py'
+          )
+          foreach($t in $transforms){
+            python (Join-Path 'desktop' $t) 'desktop\ui_personal.pyw'
+            if($LASTEXITCODE -ne 0){throw "FAILED TRANSFORM: $t"}
+          }
+          Copy-Item 'desktop\ui_personal.pyw' 'desktop\ui_clean.pyw' -Force
+          python 'desktop\v2.2_clean_feedback_transform.py' 'desktop\ui_clean.pyw'
+          if($LASTEXITCODE -ne 0){throw 'CLEAN TRANSFORM FAILED'}
+
+      - name: Exercise tutorial UI
+        id: smoke
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $py = @'
+import importlib.machinery
+import importlib.util
+import os
+import tempfile
+from pathlib import Path
+
+
+def load_module(path, name, appdata):
+    os.environ['APPDATA'] = str(appdata)
+    loader = importlib.machinery.SourceFileLoader(name, path)
+    spec = importlib.util.spec_from_loader(name, loader)
+    mod = importlib.util.module_from_spec(spec)
+    loader.exec_module(mod)
+    return mod
+
+
+def exercise(path, name, expect_clean):
+    with tempfile.TemporaryDirectory() as td:
+        mod = load_module(path, name, Path(td))
+        app = mod.App()
+        app.withdraw()
+        app.update_idletasks()
+        assert app.ui_mode == 'modern'
+        assert mod.should_auto_start_tutorial(app.store) is True
+        snap = mod.tutorial_workspace_snapshot(app.store, app.txns, app.receipts)
+        assert snap['loaded'] is False
+        assert 'load' in mod.adaptive_tutorial_topic_ids(snap)
+        assert mod.search_tutorial_topics('orange transaction')[0]['id'] == 'orange'
+        assert mod.search_tutorial_topics('receipt negative')[0]['id'] == 'receipt_sign'
+
+        app.start_tutorial(auto=False)
+        app.update_idletasks()
+        assert app.tutorial_window.winfo_exists()
+        assert app.tutorial_list.size() > 5
+        app.tutorial_search_var.set('wrong gl')
+        app._tutorial_search()
+        app.update_idletasks()
+        assert app.tutorial_title_var.get() == 'An automatic allocation used the wrong GL'
+        app._tutorial_clear_search()
+        app.update_idletasks()
+        app._tutorial_rescan()
+        app.update_idletasks()
+        app._tutorial_close()
+        app.update_idletasks()
+
+        app._apply_ui_mode('classic')
+        app.update_idletasks()
+        assert app.ui_mode == 'classic'
+        app.start_tutorial(auto=False)
+        app.update_idletasks()
+        assert app.ui_mode == 'modern'
+        app._tutorial_close()
+        app.update_idletasks()
+        assert app.ui_mode == 'classic'
+
+        app._tutorial_record_state('skipped')
+        assert mod.should_auto_start_tutorial(app.store) is False
+        app._apply_ui_mode('modern')
+        app.update_idletasks()
+        app._navigate_modern('dashboard')
+        app._navigate_modern('payments')
+        app._navigate_modern('receipts')
+        app._navigate_modern('rules')
+        app._navigate_modern('settings')
+        app.update_idletasks()
+        assert app._save_session() is True
+
+        if expect_clean:
+            assert mod.APP_DATA_NAMESPACE == 'PastelPaymentAssistantV2Feedback'
+            assert mod.ALLOW_BUNDLED_RULE_BOOTSTRAP is False
+        else:
+            assert mod.APP_DATA_NAMESPACE == 'PastelPaymentAssistant'
+            assert mod.ALLOW_BUNDLED_RULE_BOOTSTRAP is True
+        app.destroy()
+
+
+exercise(r'desktop\ui_personal.pyw', 'ui_personal', False)
+exercise(r'desktop\ui_clean.pyw', 'ui_clean', True)
+print('Tutorial UI smoke passed for Personal and Clean')
+'@
+          $py | Set-Content 'desktop\tutorial_ui_probe.py'
+          python 'desktop\tutorial_ui_probe.py'
+          if($LASTEXITCODE -ne 0){throw 'TUTORIAL UI SMOKE FAILED'}
+
+      - name: Record outcomes and remove probe
+        if: always()
+        shell: powershell
+        env:
+          PREPARE_OUTCOME: ${{ steps.prepare.outcome }}
+          SMOKE_OUTCOME: ${{ steps.smoke.outcome }}
+        run: |
+          $ErrorActionPreference='Stop'
+          @(
+            'Tutorial UI one-shot probe result',
+            "Run ID: $env:GITHUB_RUN_ID",
+            "Attempt: $env:GITHUB_RUN_ATTEMPT",
+            "Commit: $env:GITHUB_SHA",
+            "Prepare sources: $env:PREPARE_OUTCOME",
+            "Tutorial UI smoke: $env:SMOKE_OUTCOME"
+          ) | Set-Content 'desktop\TUTORIAL_UI_PROBE_RESULT.txt'
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git pull --rebase origin main
+          git add -f 'desktop/TUTORIAL_UI_PROBE_RESULT.txt'
+          git rm '.github/workflows/tutorial-ui-one-shot-probe.yml'
+          git commit -m 'Record tutorial UI probe result [skip ci]'
+          git push origin main
