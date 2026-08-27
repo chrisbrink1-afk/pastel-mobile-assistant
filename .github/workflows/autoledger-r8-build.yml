@@ -1,0 +1,274 @@
+name: AUTOLEDGER R8 Update and Full Windows Build
+
+on:
+  push:
+    branches:
+      - autoledger-r8-update
+    paths:
+      - '.github/workflows/autoledger-r8-build.yml'
+      - 'autoledger-r8/**'
+      - 'activation-service/**'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/autoledger-r8-build.yml'
+      - 'autoledger-r8/**'
+      - 'activation-service/**'
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Validate activation service logic
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Push-Location 'activation-service'
+          node test.mjs
+          if ($LASTEXITCODE -ne 0) { throw 'Activation-service tests failed' }
+          Pop-Location
+
+      - name: Reconstruct and validate original v2.2 Clean source
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          python desktop/tutorial_ci_diagnostic.py
+          if ($LASTEXITCODE -ne 0) { throw 'Original v2.2 reconstruction/regression suite failed' }
+          if (!(Test-Path 'desktop\diag_v22_clean.pyw')) { throw 'Reconstructed v2.2 source was not produced' }
+
+      - name: Validate permanent R6 entitlement and R8 activation signatures
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Push-Location 'autoledger-r8'
+          python test_licensing_vectors.py
+          if ($LASTEXITCODE -ne 0) { throw 'R6/R8 licensing signature compatibility test failed' }
+          Pop-Location
+
+      - name: Recreate the supplied AUTOLEDGER logo and Windows icon
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          python -m pip install --quiet pillow
+          python autoledger-r8/generate_assets.py
+          if ($LASTEXITCODE -ne 0) { throw 'AUTOLEDGER asset generation failed' }
+          if (!(Test-Path 'autoledger-r8\assets\AUTOLEDGER_ICON.ico')) { throw 'Generated Windows icon is missing' }
+          if (!(Test-Path 'autoledger-r8\assets\AUTOLEDGER_LOGO_MODERN.png')) { throw 'Generated logo is missing' }
+
+      - name: Prepare R8 Free and Pro source trees
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Remove-Item 'autoledger-r8\work' -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force 'autoledger-r8\work\free\assets' | Out-Null
+          New-Item -ItemType Directory -Force 'autoledger-r8\work\pro\assets' | Out-Null
+
+          Copy-Item 'desktop\diag_v22_clean.pyw' 'autoledger-r8\work\free\autoledger_core.py' -Force
+          Copy-Item 'desktop\diag_v22_clean.pyw' 'autoledger-r8\work\pro\autoledger_core.py' -Force
+          python 'autoledger-r8\r8_core_transform.py' 'autoledger-r8\work\free\autoledger_core.py'
+          if ($LASTEXITCODE -ne 0) { throw 'Free tutorial R8 transform failed' }
+          python 'autoledger-r8\r8_core_transform.py' 'autoledger-r8\work\pro\autoledger_core.py'
+          if ($LASTEXITCODE -ne 0) { throw 'Pro tutorial R8 transform failed' }
+
+          Copy-Item 'autoledger-r8\autoledger_common.py' 'autoledger-r8\work\free\autoledger_common.py' -Force
+          Copy-Item 'autoledger-r8\autoledger_common.py' 'autoledger-r8\work\pro\autoledger_common.py' -Force
+          Copy-Item 'autoledger-r8\free_runner.pyw' 'autoledger-r8\work\free\free_runner.pyw' -Force
+          Copy-Item 'autoledger-r8\pro_runner.pyw' 'autoledger-r8\work\pro\pro_runner.pyw' -Force
+          Copy-Item 'autoledger-r8\license_crypto.py' 'autoledger-r8\work\pro\license_crypto.py' -Force
+          Copy-Item 'autoledger-r8\activation_crypto.py' 'autoledger-r8\work\pro\activation_crypto.py' -Force
+          Copy-Item 'autoledger-r8\device_identity.py' 'autoledger-r8\work\pro\device_identity.py' -Force
+          Copy-Item 'autoledger-r8\pro_licensing.py' 'autoledger-r8\work\pro\pro_licensing.py' -Force
+          Copy-Item 'autoledger-r8\assets\*' 'autoledger-r8\work\free\assets' -Force
+          Copy-Item 'autoledger-r8\assets\*' 'autoledger-r8\work\pro\assets' -Force
+
+          Get-ChildItem 'autoledger-r8\work\free' -Include *.py,*.pyw -File | ForEach-Object { python -m py_compile $_.FullName; if ($LASTEXITCODE -ne 0) { throw "Compile failed: $($_.FullName)" } }
+          Get-ChildItem 'autoledger-r8\work\pro' -Include *.py,*.pyw -File | ForEach-Object { python -m py_compile $_.FullName; if ($LASTEXITCODE -ne 0) { throw "Compile failed: $($_.FullName)" } }
+
+      - name: Build self-contained R8 Windows applications
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          python -m pip install --upgrade pyinstaller
+          Push-Location 'autoledger-r8\work\free'
+          python -m PyInstaller --noconfirm --clean --onedir --windowed --icon 'assets\AUTOLEDGER_ICON.ico' --add-data 'assets;assets' --name 'AUTOLEDGER Free v2.2.5 R8 TEST' free_runner.pyw
+          $freeExit=$LASTEXITCODE
+          Pop-Location
+          if ($freeExit -ne 0) { throw 'Free R8 PyInstaller build failed' }
+
+          Push-Location 'autoledger-r8\work\pro'
+          python -m PyInstaller --noconfirm --clean --onedir --windowed --icon 'assets\AUTOLEDGER_ICON.ico' --add-data 'assets;assets' --name 'AUTOLEDGER Pro v2.2.5 R8 TEST' pro_runner.pyw
+          $proExit=$LASTEXITCODE
+          Pop-Location
+          if ($proExit -ne 0) { throw 'Pro R8 PyInstaller build failed' }
+
+      - name: Smoke-test R8 bundled application UI and device identity
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $free = Resolve-Path 'autoledger-r8\work\free\dist\AUTOLEDGER Free v2.2.5 R8 TEST\AUTOLEDGER Free v2.2.5 R8 TEST.exe'
+          $pro = Resolve-Path 'autoledger-r8\work\pro\dist\AUTOLEDGER Pro v2.2.5 R8 TEST\AUTOLEDGER Pro v2.2.5 R8 TEST.exe'
+          $p = Start-Process -FilePath $free -ArgumentList '--smoke-test' -PassThru -Wait
+          if ($p.ExitCode -ne 0) { throw "Free R8 smoke test failed with exit code $($p.ExitCode)" }
+          $p = Start-Process -FilePath $pro -ArgumentList '--smoke-test' -PassThru -Wait
+          if ($p.ExitCode -ne 0) { throw "Pro R8 smoke test failed with exit code $($p.ExitCode)" }
+
+          Push-Location 'autoledger-r8\work\pro'
+          $deviceJson = python device_identity.py
+          if ($LASTEXITCODE -ne 0) { throw 'Windows device fingerprint test failed' }
+          $device = ($deviceJson -join "`n") | ConvertFrom-Json
+          if ($device.device_id -notmatch '^[0-9a-f]{64}$') { throw 'Device ID is not a 64-character SHA-256 value' }
+          Pop-Location
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $iscc = 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe'
+          if (!(Test-Path $iscc)) { choco install innosetup -y --no-progress }
+          if (!(Test-Path $iscc)) { throw 'Inno Setup 6 was not found after installation' }
+
+      - name: Create R8 Update and Full installers
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Remove-Item 'autoledger-r8\package' -Recurse -Force -ErrorAction SilentlyContinue
+          Remove-Item 'autoledger-r8\output' -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force 'autoledger-r8\package\free' | Out-Null
+          New-Item -ItemType Directory -Force 'autoledger-r8\package\pro' | Out-Null
+          New-Item -ItemType Directory -Force 'autoledger-r8\output' | Out-Null
+          Copy-Item 'autoledger-r8\work\free\dist\AUTOLEDGER Free v2.2.5 R8 TEST\*' 'autoledger-r8\package\free' -Recurse -Force
+          Copy-Item 'autoledger-r8\work\pro\dist\AUTOLEDGER Pro v2.2.5 R8 TEST\*' 'autoledger-r8\package\pro' -Recurse -Force
+          Push-Location 'autoledger-r8'
+          foreach ($iss in @('free_update.iss','free_full.iss','pro_update.iss','pro_full.iss')) {
+            & 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe' $iss
+            if ($LASTEXITCODE -ne 0) { throw "Inno Setup build failed: $iss" }
+          }
+          Pop-Location
+
+      - name: Prove Update package requires an existing installation
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $update = Resolve-Path 'autoledger-r8\output\AUTOLEDGER_Free_v2.2.5_R8_UPDATE_from_R6_TEST_Setup.exe'
+          $p = Start-Process -FilePath $update -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART') -PassThru -Wait
+          if ($p.ExitCode -eq 0) { throw 'R8 Update unexpectedly installed without an existing R6/R8 installation' }
+
+      - name: Install R8 Update over seeded R6 state and prove data/licence preservation
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $freeDir = Join-Path $env:LOCALAPPDATA 'Programs\AUTOLEDGER Free'
+          $proDir = Join-Path $env:LOCALAPPDATA 'Programs\AUTOLEDGER Pro'
+          New-Item -ItemType Directory -Force $freeDir | Out-Null
+          New-Item -ItemType Directory -Force $proDir | Out-Null
+          Set-Content -Path (Join-Path $freeDir 'AUTOLEDGER Free v2.2.5 R6 TEST.exe') -Value 'R6 marker'
+          Set-Content -Path (Join-Path $proDir 'AUTOLEDGER Pro v2.2.5 R6 TEST.exe') -Value 'R6 marker'
+
+          $freeData = Join-Path $env:APPDATA 'AUTOLEDGER_V225_TEST_Free'
+          $proData = Join-Path $env:APPDATA 'AUTOLEDGER_V225_TEST_Pro'
+          New-Item -ItemType Directory -Force $freeData | Out-Null
+          New-Item -ItemType Directory -Force $proData | Out-Null
+          '{"version":1,"months":{"2026-08":{"used":37,"statements":{}}}}' | Set-Content (Join-Path $freeData 'free_usage_r6.json') -Encoding utf8
+          $freeBefore = (Get-FileHash (Join-Path $freeData 'free_usage_r6.json') -Algorithm SHA256).Hash
+          $key = (Get-Content 'autoledger-r8\testdata\R6_SAMPLE_ENTITLEMENT_KEY.txt' -Raw).Trim()
+          @{version=1;key=$key;payload=@{license_id='R6TEST446168C5'}} | ConvertTo-Json -Depth 5 | Set-Content (Join-Path $proData 'pro_licence_r6.json') -Encoding utf8
+
+          $freeUpdate = Resolve-Path 'autoledger-r8\output\AUTOLEDGER_Free_v2.2.5_R8_UPDATE_from_R6_TEST_Setup.exe'
+          $proUpdate = Resolve-Path 'autoledger-r8\output\AUTOLEDGER_Pro_v2.2.5_R8_UPDATE_from_R6_TEST_Setup.exe'
+          foreach ($setup in @($freeUpdate,$proUpdate)) {
+            $p = Start-Process -FilePath $setup -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART') -PassThru -Wait
+            if ($p.ExitCode -ne 0) { throw "Update installer failed: $setup / exit $($p.ExitCode)" }
+          }
+
+          $freeExe = Join-Path $freeDir 'AUTOLEDGER Free v2.2.5 R8 TEST.exe'
+          $proExe = Join-Path $proDir 'AUTOLEDGER Pro v2.2.5 R8 TEST.exe'
+          if (!(Test-Path $freeExe) -or !(Test-Path $proExe)) { throw 'R8 Update did not install expected executables' }
+          if (Test-Path (Join-Path $freeDir 'AUTOLEDGER Free v2.2.5 R6 TEST.exe')) { throw 'Old Free R6 executable was not retired' }
+          if (Test-Path (Join-Path $proDir 'AUTOLEDGER Pro v2.2.5 R6 TEST.exe')) { throw 'Old Pro R6 executable was not retired' }
+
+          $p = Start-Process -FilePath $freeExe -ArgumentList '--smoke-test' -PassThru -Wait
+          if ($p.ExitCode -ne 0) { throw 'Installed Free R8 Update smoke test failed' }
+          $p = Start-Process -FilePath $proExe -ArgumentList '--smoke-test' -PassThru -Wait
+          if ($p.ExitCode -ne 0) { throw 'Installed Pro R8 Update smoke test failed' }
+          $p = Start-Process -FilePath $proExe -ArgumentList '--existing-licence-smoke-test' -PassThru -Wait
+          if ($p.ExitCode -ne 0) { throw 'Existing R6 Pro entitlement was not preserved/accepted by R8 Update' }
+          $freeAfter = (Get-FileHash (Join-Path $freeData 'free_usage_r6.json') -Algorithm SHA256).Hash
+          if ($freeBefore -ne $freeAfter) { throw 'Free R6 usage state changed during R8 Update' }
+
+      - name: Install and smoke-test the R8 Full packages
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $freeSetup = Resolve-Path 'autoledger-r8\output\AUTOLEDGER_Free_v2.2.5_R8_FULL_TEST_Setup.exe'
+          $proSetup = Resolve-Path 'autoledger-r8\output\AUTOLEDGER_Pro_v2.2.5_R8_FULL_TEST_Setup.exe'
+          $freeFull = Join-Path $env:RUNNER_TEMP 'AUTOLEDGER_Free_R8_FULL'
+          $proFull = Join-Path $env:RUNNER_TEMP 'AUTOLEDGER_Pro_R8_FULL'
+          Remove-Item $freeFull -Recurse -Force -ErrorAction SilentlyContinue
+          Remove-Item $proFull -Recurse -Force -ErrorAction SilentlyContinue
+          $p = Start-Process -FilePath $freeSetup -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',"/DIR=$freeFull") -PassThru -Wait
+          if ($p.ExitCode -ne 0) { throw "Free Full installer failed with exit code $($p.ExitCode)" }
+          $p = Start-Process -FilePath $proSetup -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',"/DIR=$proFull") -PassThru -Wait
+          if ($p.ExitCode -ne 0) { throw "Pro Full installer failed with exit code $($p.ExitCode)" }
+          $freeExe = Join-Path $freeFull 'AUTOLEDGER Free v2.2.5 R8 TEST.exe'
+          $proExe = Join-Path $proFull 'AUTOLEDGER Pro v2.2.5 R8 TEST.exe'
+          if (!(Test-Path $freeExe) -or !(Test-Path $proExe)) { throw 'Full installer executable missing' }
+          $p = Start-Process -FilePath $freeExe -ArgumentList '--smoke-test' -PassThru -Wait
+          if ($p.ExitCode -ne 0) { throw 'Free Full installed smoke test failed' }
+          $p = Start-Process -FilePath $proExe -ArgumentList '--smoke-test' -PassThru -Wait
+          if ($p.ExitCode -ne 0) { throw 'Pro Full installed smoke test failed' }
+
+      - name: Verify standalone payload and prepare release files
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          foreach ($f in @(
+            'autoledger-r8\package\free\_internal\python312.dll',
+            'autoledger-r8\package\pro\_internal\python312.dll',
+            'autoledger-r8\package\free\_internal\_tkinter.pyd',
+            'autoledger-r8\package\pro\_internal\_tkinter.pyd',
+            'autoledger-r8\package\free\_internal\assets\AUTOLEDGER_LOGO_MODERN.png',
+            'autoledger-r8\package\pro\_internal\assets\AUTOLEDGER_LOGO_MODERN.png',
+            'autoledger-r8\package\free\_internal\assets\AUTOLEDGER_ICON.ico',
+            'autoledger-r8\package\pro\_internal\assets\AUTOLEDGER_ICON.ico'
+          )) { if (!(Test-Path $f)) { throw "Required R8 component missing: $f" } }
+
+          $setups = Get-ChildItem 'autoledger-r8\output\AUTOLEDGER_*_v2.2.5_R8_*_TEST_Setup.exe' | Sort-Object Name
+          if ($setups.Count -ne 4) { throw "Expected four R8 installers, found $($setups.Count)" }
+          $lines = foreach ($f in $setups) { "$((($f | Get-FileHash -Algorithm SHA256).Hash).ToLower())  $($f.Name)" }
+          $lines | Set-Content 'autoledger-r8\output\AUTOLEDGER_v2.2.5_R8_SHA256.txt'
+          @(
+            'AUTOLEDGER v2.2.5 R8 TEST',
+            '',
+            'Four installers are supplied:',
+            '- Free UPDATE from R6/R8 existing installation',
+            '- Free FULL clean-install capable package',
+            '- Pro UPDATE from R6/R8 existing installation',
+            '- Pro FULL clean-install capable package',
+            '',
+            'Free/Pro are self-contained Windows x64 applications. No Python installation is required.',
+            'R8 adds the supplied AUTOLEDGER logo/banner and Windows icon plus corrected tutorial Back/Next navigation.',
+            'Pro permanently accepts the existing ALP225R6 entitlement format and preserves pro_licence_r6.json during updates.',
+            'R8 adds the one-active-PC activation framework, transfer/deactivation, hardware-tolerant fingerprinting and signed offline activation certificates.',
+            'Pro initial device activation requires the AUTOLEDGER activation service to be deployed at api.autoledger.co.za.',
+            'Bank/accounting data remains local; only minimal licensing/device metadata is used by activation.',
+            '',
+            'Publisher metadata: AUTOLEDGER SYSTEMS PTY LTD',
+            'These TEST builds are not yet Authenticode code-signed.'
+          ) | Set-Content 'autoledger-r8\output\README_R8_TEST.txt'
+
+      - name: Upload finished R8 Windows installers
+        uses: actions/upload-artifact@v4
+        with:
+          name: AUTOLEDGER-v2.2.5-R8-UPDATE-AND-FULL-WINDOWS
+          path: autoledger-r8/output/*
+          if-no-files-found: error
