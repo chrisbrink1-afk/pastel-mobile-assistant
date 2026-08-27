@@ -1,0 +1,166 @@
+name: AUTOLEDGER R6 Standalone Windows Build
+
+on:
+  push:
+    branches:
+      - autoledger-r6-build
+    paths:
+      - '.github/workflows/autoledger-r6-build.yml'
+      - 'autoledger-r6/**'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/autoledger-r6-build.yml'
+      - 'autoledger-r6/**'
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Reconstruct and validate original v2.2 Clean source
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          python desktop/tutorial_ci_diagnostic.py
+          if ($LASTEXITCODE -ne 0) { throw 'Original v2.2 reconstruction/regression suite failed' }
+          if (!(Test-Path 'desktop\diag_v22_clean.pyw')) { throw 'Reconstructed v2.2 source was not produced' }
+
+      - name: Prepare AUTOLEDGER Free and Pro source trees
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Remove-Item 'autoledger-r6\work' -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force 'autoledger-r6\work\free' | Out-Null
+          New-Item -ItemType Directory -Force 'autoledger-r6\work\pro' | Out-Null
+          Copy-Item 'desktop\diag_v22_clean.pyw' 'autoledger-r6\work\free\autoledger_core.py' -Force
+          Copy-Item 'desktop\diag_v22_clean.pyw' 'autoledger-r6\work\pro\autoledger_core.py' -Force
+          Copy-Item 'autoledger-r6\autoledger_common.py' 'autoledger-r6\work\free\autoledger_common.py' -Force
+          Copy-Item 'autoledger-r6\autoledger_common.py' 'autoledger-r6\work\pro\autoledger_common.py' -Force
+          Copy-Item 'autoledger-r6\free_runner.pyw' 'autoledger-r6\work\free\free_runner.pyw' -Force
+          Copy-Item 'autoledger-r6\pro_runner.pyw' 'autoledger-r6\work\pro\pro_runner.pyw' -Force
+          Copy-Item 'autoledger-r6\license_crypto.py' 'autoledger-r6\work\pro\license_crypto.py' -Force
+          Copy-Item 'autoledger-r6\pro_licensing.py' 'autoledger-r6\work\pro\pro_licensing.py' -Force
+          Get-ChildItem 'autoledger-r6\work\free' -Include *.py,*.pyw -File | ForEach-Object { python -m py_compile $_.FullName; if ($LASTEXITCODE -ne 0) { throw "Compile failed: $($_.FullName)" } }
+          Get-ChildItem 'autoledger-r6\work\pro' -Include *.py,*.pyw -File | ForEach-Object { python -m py_compile $_.FullName; if ($LASTEXITCODE -ne 0) { throw "Compile failed: $($_.FullName)" } }
+
+      - name: Build self-contained Windows applications with PyInstaller
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          python -m pip install --upgrade pyinstaller
+          Push-Location 'autoledger-r6\work\free'
+          python -m PyInstaller --noconfirm --clean --onedir --windowed --name 'AUTOLEDGER Free v2.2.5 R6 TEST' free_runner.pyw
+          $freeExit=$LASTEXITCODE
+          Pop-Location
+          if ($freeExit -ne 0) { throw 'Free PyInstaller build failed' }
+          Push-Location 'autoledger-r6\work\pro'
+          python -m PyInstaller --noconfirm --clean --onedir --windowed --name 'AUTOLEDGER Pro v2.2.5 R6 TEST' pro_runner.pyw
+          $proExit=$LASTEXITCODE
+          Pop-Location
+          if ($proExit -ne 0) { throw 'Pro PyInstaller build failed' }
+
+      - name: Smoke-test the actual bundled Windows executables
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $free = Resolve-Path 'autoledger-r6\work\free\dist\AUTOLEDGER Free v2.2.5 R6 TEST\AUTOLEDGER Free v2.2.5 R6 TEST.exe'
+          $pro = Resolve-Path 'autoledger-r6\work\pro\dist\AUTOLEDGER Pro v2.2.5 R6 TEST\AUTOLEDGER Pro v2.2.5 R6 TEST.exe'
+          $p = Start-Process -FilePath $free -ArgumentList '--smoke-test' -PassThru -Wait
+          if ($p.ExitCode -ne 0) { throw "Free smoke test failed with exit code $($p.ExitCode)" }
+          $p = Start-Process -FilePath $pro -ArgumentList '--smoke-test' -PassThru -Wait
+          if ($p.ExitCode -ne 0) { throw "Pro smoke test failed with exit code $($p.ExitCode)" }
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $iscc = 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe'
+          if (!(Test-Path $iscc)) { choco install innosetup -y --no-progress }
+          if (!(Test-Path $iscc)) { throw 'Inno Setup 6 was not found after installation' }
+
+      - name: Create conventional Free and Pro Windows installers
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Remove-Item 'autoledger-r6\package' -Recurse -Force -ErrorAction SilentlyContinue
+          Remove-Item 'autoledger-r6\output' -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force 'autoledger-r6\package\free' | Out-Null
+          New-Item -ItemType Directory -Force 'autoledger-r6\package\pro' | Out-Null
+          New-Item -ItemType Directory -Force 'autoledger-r6\output' | Out-Null
+          Copy-Item 'autoledger-r6\work\free\dist\AUTOLEDGER Free v2.2.5 R6 TEST\*' 'autoledger-r6\package\free' -Recurse -Force
+          Copy-Item 'autoledger-r6\work\pro\dist\AUTOLEDGER Pro v2.2.5 R6 TEST\*' 'autoledger-r6\package\pro' -Recurse -Force
+          Push-Location 'autoledger-r6'
+          & 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe' free.iss
+          if ($LASTEXITCODE -ne 0) { throw 'Free Inno Setup build failed' }
+          & 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe' pro.iss
+          if ($LASTEXITCODE -ne 0) { throw 'Pro Inno Setup build failed' }
+          Pop-Location
+
+      - name: Install and smoke-test the finished Setup EXEs
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $freeSetup = Resolve-Path 'autoledger-r6\output\AUTOLEDGER_Free_v2.2.5_R6_STANDALONE_TEST_Setup.exe'
+          $proSetup = Resolve-Path 'autoledger-r6\output\AUTOLEDGER_Pro_v2.2.5_R6_STANDALONE_TEST_Setup.exe'
+          $freeDir = Join-Path $env:RUNNER_TEMP 'AUTOLEDGER_Free_R6_Installed'
+          $proDir = Join-Path $env:RUNNER_TEMP 'AUTOLEDGER_Pro_R6_Installed'
+          Remove-Item $freeDir -Recurse -Force -ErrorAction SilentlyContinue
+          Remove-Item $proDir -Recurse -Force -ErrorAction SilentlyContinue
+          $p = Start-Process -FilePath $freeSetup -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',"/DIR=$freeDir") -PassThru -Wait
+          if ($p.ExitCode -ne 0) { throw "Free Setup install failed with exit code $($p.ExitCode)" }
+          $p = Start-Process -FilePath $proSetup -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',"/DIR=$proDir") -PassThru -Wait
+          if ($p.ExitCode -ne 0) { throw "Pro Setup install failed with exit code $($p.ExitCode)" }
+          $freeExe = Join-Path $freeDir 'AUTOLEDGER Free v2.2.5 R6 TEST.exe'
+          $proExe = Join-Path $proDir 'AUTOLEDGER Pro v2.2.5 R6 TEST.exe'
+          if (!(Test-Path $freeExe)) { throw 'Free installed executable is missing' }
+          if (!(Test-Path $proExe)) { throw 'Pro installed executable is missing' }
+          $p = Start-Process -FilePath $freeExe -ArgumentList '--smoke-test' -PassThru -Wait
+          if ($p.ExitCode -ne 0) { throw "Installed Free smoke test failed with exit code $($p.ExitCode)" }
+          $p = Start-Process -FilePath $proExe -ArgumentList '--smoke-test' -PassThru -Wait
+          if ($p.ExitCode -ne 0) { throw "Installed Pro smoke test failed with exit code $($p.ExitCode)" }
+
+      - name: Verify standalone payload and generate hashes
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $freeSetup='autoledger-r6\output\AUTOLEDGER_Free_v2.2.5_R6_STANDALONE_TEST_Setup.exe'
+          $proSetup='autoledger-r6\output\AUTOLEDGER_Pro_v2.2.5_R6_STANDALONE_TEST_Setup.exe'
+          foreach ($f in @($freeSetup,$proSetup,'autoledger-r6\package\free\_internal\python312.dll','autoledger-r6\package\pro\_internal\python312.dll','autoledger-r6\package\free\_internal\_tkinter.pyd','autoledger-r6\package\pro\_internal\_tkinter.pyd')) {
+            if (!(Test-Path $f)) { throw "Required standalone component missing: $f" }
+          }
+          $lines=@()
+          foreach ($f in @($freeSetup,$proSetup)) {
+            $h=(Get-FileHash $f -Algorithm SHA256).Hash.ToLower()
+            $lines += "$h  $([IO.Path]::GetFileName($f))"
+          }
+          $lines | Set-Content 'autoledger-r6\output\AUTOLEDGER_v2.2.5_R6_STANDALONE_SHA256.txt'
+          @(
+            'AUTOLEDGER v2.2.5 R6 STANDALONE TEST',
+            '',
+            'Free and Pro are self-contained Windows x64 applications built with PyInstaller on Python 3.12.',
+            'No Python installation is required on the customer PC.',
+            'Both final Setup EXEs were installed into clean temporary folders on a Windows runner and the installed applications passed smoke tests.',
+            'Both installers display the EULA before interactive installation, register in Windows Installed Apps, create Start Menu shortcuts, and offer a Desktop shortcut.',
+            'Uninstall asks whether AUTOLEDGER local data and settings should also be removed.',
+            'Pro requires an ALP225R6 offline licence key generated by the separate INTERNAL Key Generator.',
+            '',
+            'Publisher metadata: AUTOLEDGER SYSTEMS PTY LTD',
+            'Test builds are not yet Authenticode code-signed.'
+          ) | Set-Content 'autoledger-r6\output\README_R6_TEST.txt'
+
+      - name: Upload finished R6 installers
+        uses: actions/upload-artifact@v4
+        with:
+          name: AUTOLEDGER-v2.2.5-R6-STANDALONE-WINDOWS
+          path: autoledger-r6/output/*
+          if-no-files-found: error
