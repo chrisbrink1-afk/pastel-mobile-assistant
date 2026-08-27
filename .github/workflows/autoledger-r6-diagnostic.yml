@@ -1,0 +1,32 @@
+name: AUTOLEDGER R6 Portable Diagnostic
+
+on:
+  pull_request:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/autoledger-r6-diagnostic.yml'
+      - 'autoledger-r6/**'
+
+jobs:
+  inspect-v22-portable:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Extract v2.2 portable
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $zip = 'desktop/Pastel-Payment-Assistant-v2.2-Clean-Portable.zip'
+          $out = Join-Path $env:RUNNER_TEMP 'v22portable'
+          Expand-Archive -LiteralPath $zip -DestinationPath $out -Force
+          "EXTRACT_ROOT=$out" | Out-File -FilePath $env:GITHUB_ENV -Append
+          Get-ChildItem -LiteralPath $out -Recurse -Force | Select-Object FullName, Length | Format-Table -AutoSize | Out-String -Width 500 | Write-Host
+          Get-ChildItem -LiteralPath $out -Recurse -File -Force | ForEach-Object {
+            $rel = $_.FullName.Substring($out.Length).TrimStart('\\')
+            "$rel`t$($_.Length)"
+          } | Set-Content -Path portable-files.txt
+      - name: Upload listing
+        uses: actions/upload-artifact@v4
+        with:
+          name: autoledger-r6-portable-listing
+          path: portable-files.txt
