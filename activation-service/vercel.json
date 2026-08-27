@@ -1,0 +1,10 @@
+{
+  "version": 2,
+  "rewrites": [
+    {"source": "/v1/:path*", "destination": "/api/index.js"},
+    {"source": "/health", "destination": "/api/index.js"}
+  ],
+  "functions": {
+    "api/index.js": {"maxDuration": 10}
+  }
+}
