@@ -1,0 +1,234 @@
+name: AUTOLEDGER R6 Standalone Windows Build
+
+on:
+  pull_request:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/autoledger-r6-build.yml'
+      - 'autoledger-r6/**'
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Reconstruct and validate original v2.2 Clean source
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          python desktop/tutorial_ci_diagnostic.py
+          if ($LASTEXITCODE -ne 0) { throw 'Original v2.2 reconstruction/regression suite failed' }
+          if (!(Test-Path 'desktop\diag_v22_clean.pyw')) { throw 'Reconstructed v2.2 source was not produced' }
+
+      - name: Prepare AUTOLEDGER Free and Pro source trees
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Remove-Item 'autoledger-r6\work' -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force 'autoledger-r6\work\free' | Out-Null
+          New-Item -ItemType Directory -Force 'autoledger-r6\work\pro' | Out-Null
+          Copy-Item 'desktop\diag_v22_clean.pyw' 'autoledger-r6\work\free\autoledger_core.py' -Force
+          Copy-Item 'desktop\diag_v22_clean.pyw' 'autoledger-r6\work\pro\autoledger_core.py' -Force
+          Copy-Item 'autoledger-r6\autoledger_common.py' 'autoledger-r6\work\free\autoledger_common.py' -Force
+          Copy-Item 'autoledger-r6\autoledger_common.py' 'autoledger-r6\work\pro\autoledger_common.py' -Force
+          Copy-Item 'autoledger-r6\free_runner.pyw' 'autoledger-r6\work\free\free_runner.pyw' -Force
+          Copy-Item 'autoledger-r6\pro_runner.pyw' 'autoledger-r6\work\pro\pro_runner.pyw' -Force
+          Copy-Item 'autoledger-r6\license_crypto.py' 'autoledger-r6\work\pro\license_crypto.py' -Force
+          Copy-Item 'autoledger-r6\pro_licensing.py' 'autoledger-r6\work\pro\pro_licensing.py' -Force
+          python -m py_compile autoledger-r6\work\free\*.py autoledger-r6\work\free\*.pyw autoledger-r6\work\pro\*.py autoledger-r6\work\pro\*.pyw
+
+      - name: Build self-contained Windows applications with PyInstaller
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          python -m pip install --upgrade pyinstaller
+          Push-Location 'autoledger-r6\work\free'
+          python -m PyInstaller --noconfirm --clean --onedir --windowed --name 'AUTOLEDGER Free v2.2.5 R6 TEST' free_runner.pyw
+          if ($LASTEXITCODE -ne 0) { throw 'Free PyInstaller build failed' }
+          Pop-Location
+          Push-Location 'autoledger-r6\work\pro'
+          python -m PyInstaller --noconfirm --clean --onedir --windowed --name 'AUTOLEDGER Pro v2.2.5 R6 TEST' pro_runner.pyw
+          if ($LASTEXITCODE -ne 0) { throw 'Pro PyInstaller build failed' }
+          Pop-Location
+
+      - name: Smoke-test the actual bundled Windows executables
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $free = Resolve-Path 'autoledger-r6\work\free\dist\AUTOLEDGER Free v2.2.5 R6 TEST\AUTOLEDGER Free v2.2.5 R6 TEST.exe'
+          $pro = Resolve-Path 'autoledger-r6\work\pro\dist\AUTOLEDGER Pro v2.2.5 R6 TEST\AUTOLEDGER Pro v2.2.5 R6 TEST.exe'
+          $p = Start-Process -FilePath $free -ArgumentList '--smoke-test' -PassThru -Wait
+          if ($p.ExitCode -ne 0) { throw "Free smoke test failed with exit code $($p.ExitCode)" }
+          $p = Start-Process -FilePath $pro -ArgumentList '--smoke-test' -PassThru -Wait
+          if ($p.ExitCode -ne 0) { throw "Pro smoke test failed with exit code $($p.ExitCode)" }
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $iscc = 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe'
+          if (!(Test-Path $iscc)) {
+            choco install innosetup -y --no-progress
+          }
+          if (!(Test-Path $iscc)) { throw 'Inno Setup 6 was not found after installation' }
+
+      - name: Create conventional Free and Pro Windows installers
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Remove-Item 'autoledger-r6\package' -Recurse -Force -ErrorAction SilentlyContinue
+          Remove-Item 'autoledger-r6\output' -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force 'autoledger-r6\package\free' | Out-Null
+          New-Item -ItemType Directory -Force 'autoledger-r6\package\pro' | Out-Null
+          New-Item -ItemType Directory -Force 'autoledger-r6\output' | Out-Null
+          Copy-Item 'autoledger-r6\work\free\dist\AUTOLEDGER Free v2.2.5 R6 TEST\*' 'autoledger-r6\package\free' -Recurse -Force
+          Copy-Item 'autoledger-r6\work\pro\dist\AUTOLEDGER Pro v2.2.5 R6 TEST\*' 'autoledger-r6\package\pro' -Recurse -Force
+
+          @'
+[Setup]
+AppId={{72E507B4-3AE4-4A9C-A3F6-F87E9C5AF601}
+AppName=AUTOLEDGER Free
+AppVersion=2.2.5 R6 TEST
+AppPublisher=AUTOLEDGER SYSTEMS PTY LTD
+AppPublisherURL=https://autoledger.co.za
+DefaultDirName={localappdata}\Programs\AUTOLEDGER Free
+DefaultGroupName=AUTOLEDGER
+DisableProgramGroupPage=yes
+PrivilegesRequired=lowest
+OutputDir=output
+OutputBaseFilename=AUTOLEDGER_Free_v2.2.5_R6_STANDALONE_TEST_Setup
+Compression=lzma2
+SolidCompression=yes
+WizardStyle=modern
+LicenseFile=EULA.txt
+UninstallDisplayIcon={app}\AUTOLEDGER Free v2.2.5 R6 TEST.exe
+ArchitecturesAllowed=x64compatible
+ArchitecturesInstallIn64BitMode=x64compatible
+
+[Tasks]
+Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription: "Additional icons:"; Flags: unchecked
+
+[Files]
+Source: "package\free\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "EULA.txt"; DestDir: "{app}"; Flags: ignoreversion
+
+[Icons]
+Name: "{group}\AUTOLEDGER Free"; Filename: "{app}\AUTOLEDGER Free v2.2.5 R6 TEST.exe"
+Name: "{autodesktop}\AUTOLEDGER Free"; Filename: "{app}\AUTOLEDGER Free v2.2.5 R6 TEST.exe"; Tasks: desktopicon
+
+[Code]
+var RemoveLocalData: Boolean;
+function InitializeUninstall(): Boolean;
+begin
+  RemoveLocalData := MsgBox('Also remove AUTOLEDGER local data and settings?' + #13#10 + #13#10 +
+    'Select Yes to permanently remove AUTOLEDGER Free profiles, settings and usage data. Select No to preserve them for a future reinstall.',
+    mbConfirmation, MB_YESNO) = IDYES;
+  Result := True;
+end;
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+begin
+  if (CurUninstallStep = usPostUninstall) and RemoveLocalData then
+    DelTree(ExpandConstant('{userappdata}\AUTOLEDGER_V225_TEST_Free'), True, True, True);
+end;
+'@ | Set-Content 'autoledger-r6\free.iss' -Encoding UTF8
+
+          @'
+[Setup]
+AppId={{507C33AC-66AB-48C3-80D9-C690DA2179B2}
+AppName=AUTOLEDGER Pro
+AppVersion=2.2.5 R6 TEST
+AppPublisher=AUTOLEDGER SYSTEMS PTY LTD
+AppPublisherURL=https://autoledger.co.za
+DefaultDirName={localappdata}\Programs\AUTOLEDGER Pro
+DefaultGroupName=AUTOLEDGER
+DisableProgramGroupPage=yes
+PrivilegesRequired=lowest
+OutputDir=output
+OutputBaseFilename=AUTOLEDGER_Pro_v2.2.5_R6_STANDALONE_TEST_Setup
+Compression=lzma2
+SolidCompression=yes
+WizardStyle=modern
+LicenseFile=EULA.txt
+UninstallDisplayIcon={app}\AUTOLEDGER Pro v2.2.5 R6 TEST.exe
+ArchitecturesAllowed=x64compatible
+ArchitecturesInstallIn64BitMode=x64compatible
+
+[Tasks]
+Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription: "Additional icons:"; Flags: unchecked
+
+[Files]
+Source: "package\pro\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "EULA.txt"; DestDir: "{app}"; Flags: ignoreversion
+
+[Icons]
+Name: "{group}\AUTOLEDGER Pro"; Filename: "{app}\AUTOLEDGER Pro v2.2.5 R6 TEST.exe"
+Name: "{autodesktop}\AUTOLEDGER Pro"; Filename: "{app}\AUTOLEDGER Pro v2.2.5 R6 TEST.exe"; Tasks: desktopicon
+
+[Code]
+var RemoveLocalData: Boolean;
+function InitializeUninstall(): Boolean;
+begin
+  RemoveLocalData := MsgBox('Also remove AUTOLEDGER local data and settings?' + #13#10 + #13#10 +
+    'Select Yes to permanently remove AUTOLEDGER Pro profiles, settings and locally stored licence data. Select No to preserve them for a future reinstall.',
+    mbConfirmation, MB_YESNO) = IDYES;
+  Result := True;
+end;
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+begin
+  if (CurUninstallStep = usPostUninstall) and RemoveLocalData then
+    DelTree(ExpandConstant('{userappdata}\AUTOLEDGER_V225_TEST_Pro'), True, True, True);
+end;
+'@ | Set-Content 'autoledger-r6\pro.iss' -Encoding UTF8
+
+          Push-Location 'autoledger-r6'
+          & 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe' free.iss
+          if ($LASTEXITCODE -ne 0) { throw 'Free Inno Setup build failed' }
+          & 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe' pro.iss
+          if ($LASTEXITCODE -ne 0) { throw 'Pro Inno Setup build failed' }
+          Pop-Location
+
+      - name: Verify standalone payload and generate hashes
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $freeSetup='autoledger-r6\output\AUTOLEDGER_Free_v2.2.5_R6_STANDALONE_TEST_Setup.exe'
+          $proSetup='autoledger-r6\output\AUTOLEDGER_Pro_v2.2.5_R6_STANDALONE_TEST_Setup.exe'
+          if (!(Test-Path $freeSetup) -or !(Test-Path $proSetup)) { throw 'R6 Setup EXEs are missing' }
+          $freeRuntime='autoledger-r6\package\free\_internal\python312.dll'
+          $proRuntime='autoledger-r6\package\pro\_internal\python312.dll'
+          $freeTk='autoledger-r6\package\free\_internal\_tkinter.pyd'
+          $proTk='autoledger-r6\package\pro\_internal\_tkinter.pyd'
+          foreach ($f in @($freeRuntime,$proRuntime,$freeTk,$proTk)) { if (!(Test-Path $f)) { throw "Bundled runtime component missing: $f" } }
+          $lines=@()
+          foreach ($f in @($freeSetup,$proSetup)) {
+            $h=(Get-FileHash $f -Algorithm SHA256).Hash.ToLower()
+            $lines += "$h  $([IO.Path]::GetFileName($f))"
+          }
+          $lines | Set-Content 'autoledger-r6\output\AUTOLEDGER_v2.2.5_R6_STANDALONE_SHA256.txt'
+          @(
+            'AUTOLEDGER v2.2.5 R6 STANDALONE TEST',
+            '',
+            'Free and Pro are self-contained Windows x64 applications built with PyInstaller on Python 3.12.',
+            'No Python installation is required on the customer PC.',
+            'Both installers display the EULA before installation, register in Windows Installed Apps, create Start Menu shortcuts, and offer a Desktop shortcut.',
+            'Uninstall asks whether AUTOLEDGER local data and settings should also be removed.',
+            'Pro requires an ALP225R6 offline licence key generated by the separate INTERNAL Key Generator.',
+            '',
+            'Publisher metadata: AUTOLEDGER SYSTEMS PTY LTD',
+            'Test builds are not yet Authenticode code-signed.'
+          ) | Set-Content 'autoledger-r6\output\README_R6_TEST.txt'
+
+      - name: Upload finished R6 installers
+        uses: actions/upload-artifact@v4
+        with:
+          name: AUTOLEDGER-v2.2.5-R6-STANDALONE-WINDOWS
+          path: autoledger-r6/output/*
+          if-no-files-found: error
