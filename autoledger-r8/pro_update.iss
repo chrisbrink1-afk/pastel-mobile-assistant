@@ -49,8 +49,11 @@ function InitializeSetup(): Boolean;
 begin
   Result := ExistingInstallFound();
   if not Result then
-    MsgBox('This is the AUTOLEDGER Pro R8 UPDATE package, but an existing R6/R8 Pro installation was not found.' + #13#10 + #13#10 +
-      'Please use the R8 FULL installer on a new PC or clean installation.', mbError, MB_OK);
+  begin
+    if not WizardSilent then
+      MsgBox('This is the AUTOLEDGER Pro R8 UPDATE package, but an existing R6/R8 Pro installation was not found.' + #13#10 + #13#10 +
+        'Please use the R8 FULL installer on a new PC or clean installation.', mbError, MB_OK);
+  end;
 end;
 
 function InitializeUninstall(): Boolean;
