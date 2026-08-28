@@ -1,0 +1,50 @@
+name: AUTOLEDGER R9 Complete Help Audit
+
+on:
+  push:
+    branches:
+      - autoledger-r9-help-audit
+    paths:
+      - '.github/workflows/autoledger-r9-help-audit.yml'
+      - 'autoledger-r9/**'
+      - 'autoledger-r8/**'
+      - 'desktop/**'
+  workflow_dispatch:
+
+jobs:
+  audit:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Reconstruct validated application source
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          python desktop/tutorial_ci_diagnostic.py
+          if ($LASTEXITCODE -ne 0) { throw 'Source reconstruction failed' }
+          if (!(Test-Path 'desktop\diag_v22_clean.pyw')) { throw 'Reconstructed source missing' }
+          Copy-Item 'desktop\diag_v22_clean.pyw' 'autoledger-r9\audit_r8_core.pyw' -Force
+          python 'autoledger-r8\r8_core_transform.py' 'autoledger-r9\audit_r8_core.pyw'
+          if ($LASTEXITCODE -ne 0) { throw 'R8 tutorial transform failed' }
+
+      - name: Inventory every user-facing UI control
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          python 'autoledger-r9\help_inventory.py' 'autoledger-r9\audit_r8_core.pyw' 'autoledger-r9\audit-output'
+          if ($LASTEXITCODE -ne 0) { throw 'Help inventory failed' }
+          Get-Content 'autoledger-r9\audit-output\ui_feature_inventory.md'
+
+      - name: Upload reconstructed source and feature inventory
+        uses: actions/upload-artifact@v4
+        with:
+          name: AUTOLEDGER-R9-HELP-AUDIT
+          path: |
+            autoledger-r9/audit-output/ui_feature_inventory.json
+            autoledger-r9/audit-output/ui_feature_inventory.md
+            autoledger-r9/audit-output/reconstructed_r8_core.pyw
