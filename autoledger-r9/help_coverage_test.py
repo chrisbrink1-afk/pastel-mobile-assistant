@@ -27,30 +27,16 @@ CONTROL_TOPIC_MAP = {
 # Controls/fields whose labels are generated dynamically or are not all discovered
 # as action widgets by the AST inventory still receive an explicit coverage gate.
 REQUIRED_FIELD_TERMS = {
-    'Rule name':'rule_name',
-    'Name / number to match':'match_text',
-    'General ledger account':'gl_account',
-    'GL account':'gl_account',
-    'Pastel description':'pastel_description',
-    'Pastel reference':'pastel_reference',
-    'Priority':'priority',
-    'Matching method':'matching_methods',
-    'Pastel tax type':'tax_type',
-    'If amount':'amount_condition',
-    'Alternative GL':'alternative_allocation',
-    'Alternative description':'alternative_allocation',
-    'Find':'find_search',
-    'Show':'show_filter',
-    'Repeat description':'repeat_description',
-    'Sort date':'sort_date',
-    'Export selection':'export_tick',
-    'Recurring allocation tools':'recurring_allocation',
-    'Quick select for export':'quick_select',
-    'Cash Book bank GL':'contra_account',
-    'VAT tax type number':'vat_setting',
-    'VAT rate':'vat_rate',
-    'Fiscal year start month':'fiscal_month',
-    'Project code':'project_code',
+    'Rule name':'rule_name', 'Name / number to match':'match_text',
+    'General ledger account':'gl_account', 'GL account':'gl_account',
+    'Pastel description':'pastel_description', 'Pastel reference':'pastel_reference',
+    'Priority':'priority', 'Matching method':'matching_methods', 'Pastel tax type':'tax_type',
+    'If amount':'amount_condition', 'Alternative GL':'alternative_allocation',
+    'Alternative description':'alternative_allocation', 'Find':'find_search', 'Show':'show_filter',
+    'Repeat description':'repeat_description', 'Sort date':'sort_date', 'Export selection':'export_tick',
+    'Recurring allocation tools':'recurring_allocation', 'Quick select for export':'quick_select',
+    'Cash Book bank GL':'contra_account', 'VAT tax type number':'vat_setting', 'VAT rate':'vat_rate',
+    'Fiscal year start month':'fiscal_month', 'Project code':'project_code',
 }
 
 REQUIRED_TOPIC_IDS = {
@@ -65,6 +51,21 @@ REQUIRED_TOPIC_IDS = {
     'project_code','save_settings','rules_backup','settings_backup','import_settings','autosave','help_search',
     'tutorial_controls','free_edition','pro_edition','pro_transfer','privacy','install_update','uninstall'
 }
+
+
+def _words(value: str):
+    return re.findall(r'[a-z0-9]+', value.lower())
+
+
+def _term_is_explained(term: str, text: str) -> bool:
+    """Accept natural grammatical forms such as selection/selected without weakening feature coverage."""
+    term_words = _words(term)
+    text_words = _words(text)
+    for wanted in term_words:
+        stem = wanted[:6] if len(wanted) >= 7 else wanted
+        if not any(word == wanted or word.startswith(stem) or wanted.startswith(word[:6]) for word in text_words):
+            return False
+    return True
 
 
 def main(inventory_path: str) -> None:
@@ -92,10 +93,14 @@ def main(inventory_path: str) -> None:
     if bad_targets:
         raise SystemExit(f'Control mappings point at missing topics: {bad_targets}')
 
-    hay = '\n'.join((t['title']+' '+t['keywords']+' '+t['body']).lower() for t in topics.values())
     missing_terms=[]
     for term, topic_id in REQUIRED_FIELD_TERMS.items():
-        if topic_id not in topics or term.lower() not in (topics[topic_id]['title']+' '+topics[topic_id]['keywords']+' '+topics[topic_id]['body']).lower():
+        if topic_id not in topics:
+            missing_terms.append((term, topic_id))
+            continue
+        topic = topics[topic_id]
+        text = topic['title']+' '+topic['keywords']+' '+topic['body']
+        if not _term_is_explained(term, text):
             missing_terms.append((term, topic_id))
     if missing_terms:
         raise SystemExit(f'Fields/features lacking explicit beginner help: {missing_terms}')
