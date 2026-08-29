@@ -92,15 +92,19 @@ def install_r103_inline_walkthrough(core, edition: str, licence_info=None, revis
         except Exception:
             return False
 
+    def _existing_window_for(widget):
+        """Return the existing Tk window that already contains this widget."""
+        if widget is None:
+            return None
+        try:
+            lookup = getattr(widget, "winfo_" + "toplevel")
+            return lookup()
+        except Exception:
+            return None
+
     def _top_host(self, target=None):
-        if target is not None:
-            try:
-                host = target.winfo_toplevel()
-                if host is not None:
-                    return host
-            except Exception:
-                pass
-        return self
+        host = _existing_window_for(target)
+        return host if host is not None else self
 
     def _widget_box_in_host(widget, host):
         widget.update_idletasks()
@@ -127,8 +131,8 @@ def install_r103_inline_walkthrough(core, edition: str, licence_info=None, revis
         if target is None:
             return
         try:
-            host = target.winfo_toplevel()
-            canvas = getattr(host, "rule_canvas", None)
+            host = _existing_window_for(target)
+            canvas = getattr(host, "rule_canvas", None) if host is not None else None
             if canvas is None:
                 return
             canvas.update_idletasks()
@@ -140,7 +144,6 @@ def install_r103_inline_walkthrough(core, edition: str, licence_info=None, revis
             if cy + 35 <= ty and ty + th <= cy + ch - 35:
                 return
 
-            # Accumulate the target's content Y coordinate up to the canvas.
             content_y = 0
             node = target
             guard = 0
