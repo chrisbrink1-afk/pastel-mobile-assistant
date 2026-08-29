@@ -49,6 +49,7 @@ begin
     FileExists(ExpandConstant('{localappdata}\Programs\AUTOLEDGER Free\AUTOLEDGER Free v2.2.5 R8 TEST.exe')) or
     FileExists(ExpandConstant('{localappdata}\Programs\AUTOLEDGER Free\AUTOLEDGER Free v2.2.5 R9 TEST.exe')) or
     FileExists(ExpandConstant('{localappdata}\Programs\AUTOLEDGER Free\AUTOLEDGER Free v2.2.5 R10 TEST.exe')) or
+    FileExists(ExpandConstant('{localappdata}\Programs\AUTOLEDGER Free\AUTOLEDGER Free v2.2.5 R10.1 TEST.exe')) or
     FileExists(ExpandConstant('{localappdata}\Programs\AUTOLEDGER Free\AUTOLEDGER Free v2.2.5 R10.2 TEST.exe'));
 end;
 
