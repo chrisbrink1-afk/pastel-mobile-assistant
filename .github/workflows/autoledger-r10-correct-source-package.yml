@@ -1,0 +1,248 @@
+name: AUTOLEDGER R10 Correct Complete Source Packaging
+
+on:
+  push:
+    branches:
+      - autoledger-r10-guided-tutorial
+    paths:
+      - '.github/workflows/autoledger-r10-correct-source-package.yml'
+  workflow_dispatch:
+
+jobs:
+  package-source:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Prove application source is unchanged from validated R10 build
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $validated='865c31ce7a76aec82157b85048749f5cd959edbd'
+          git diff --quiet $validated HEAD -- autoledger-r10 autoledger-r9 autoledger-r8 activation-service desktop AUTOLEDGER_GUIDED_TUTORIAL_UPDATE_POLICY.md
+          if ($LASTEXITCODE -ne 0) { throw 'Application source differs from the validated R10 build commit.' }
+          Write-Host "Validated application source baseline: $validated"
+
+      - name: Reconstruct exact v2.2 clean source used by R10
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          python desktop/tutorial_ci_diagnostic.py
+          if ($LASTEXITCODE -ne 0) { throw 'v2.2 source reconstruction failed' }
+          if (!(Test-Path 'desktop\diag_v22_clean.pyw')) { throw 'diag_v22_clean.pyw missing' }
+
+      - name: Recreate R10 branding assets
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          python -m pip install --quiet pillow
+          python autoledger-r8/generate_assets.py
+          if ($LASTEXITCODE -ne 0) { throw 'Asset generation failed' }
+
+      - name: Build exact effective Free and Pro source trees
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Remove-Item 'source-package' -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force 'source-package\free\effective-source\assets' | Out-Null
+          New-Item -ItemType Directory -Force 'source-package\pro\effective-source\assets' | Out-Null
+
+          # Exact effective core source used by the R10 build.
+          Copy-Item 'desktop\diag_v22_clean.pyw' 'source-package\free\effective-source\autoledger_core.py' -Force
+          Copy-Item 'desktop\diag_v22_clean.pyw' 'source-package\pro\effective-source\autoledger_core.py' -Force
+          python autoledger-r8/r8_core_transform.py source-package/free/effective-source/autoledger_core.py
+          if ($LASTEXITCODE -ne 0) { throw 'Free core transform failed' }
+          python autoledger-r8/r8_core_transform.py source-package/pro/effective-source/autoledger_core.py
+          if ($LASTEXITCODE -ne 0) { throw 'Pro core transform failed' }
+
+          Copy-Item 'autoledger-r8\autoledger_common.py' 'source-package\free\effective-source\autoledger_common.py' -Force
+          Copy-Item 'autoledger-r8\autoledger_common.py' 'source-package\pro\effective-source\autoledger_common.py' -Force
+          python autoledger-r10/r10_common_transform.py source-package/free/effective-source/autoledger_common.py
+          if ($LASTEXITCODE -ne 0) { throw 'Free R10 common transform failed' }
+          python autoledger-r10/r10_common_transform.py source-package/pro/effective-source/autoledger_common.py
+          if ($LASTEXITCODE -ne 0) { throw 'Pro R10 common transform failed' }
+
+          Copy-Item 'autoledger-r9\help_topics.py' 'source-package\free\effective-source\help_topics.py' -Force
+          Copy-Item 'autoledger-r9\help_topics.py' 'source-package\pro\effective-source\help_topics.py' -Force
+          Copy-Item 'autoledger-r10\guided_tutorial.py' 'source-package\free\effective-source\guided_tutorial.py' -Force
+          Copy-Item 'autoledger-r10\guided_tutorial.py' 'source-package\pro\effective-source\guided_tutorial.py' -Force
+          Copy-Item 'autoledger-r8\free_runner.pyw' 'source-package\free\effective-source\free_runner.pyw' -Force
+          Copy-Item 'autoledger-r8\pro_runner.pyw' 'source-package\pro\effective-source\pro_runner.pyw' -Force
+          Copy-Item 'autoledger-r8\license_crypto.py' 'source-package\pro\effective-source\license_crypto.py' -Force
+          Copy-Item 'autoledger-r8\activation_crypto.py' 'source-package\pro\effective-source\activation_crypto.py' -Force
+          Copy-Item 'autoledger-r8\device_identity.py' 'source-package\pro\effective-source\device_identity.py' -Force
+          Copy-Item 'autoledger-r8\pro_licensing.py' 'source-package\pro\effective-source\pro_licensing.py' -Force
+          Copy-Item 'autoledger-r8\assets\AUTOLEDGER_ICON.png' 'source-package\free\effective-source\assets\AUTOLEDGER_ICON.png' -Force
+          Copy-Item 'autoledger-r8\assets\AUTOLEDGER_ICON.ico' 'source-package\free\effective-source\assets\AUTOLEDGER_ICON.ico' -Force
+          Copy-Item 'autoledger-r8\assets\AUTOLEDGER_LOGO_MODERN.png' 'source-package\free\effective-source\assets\AUTOLEDGER_LOGO_MODERN.png' -Force
+          Copy-Item 'autoledger-r8\assets\AUTOLEDGER_ICON.png' 'source-package\pro\effective-source\assets\AUTOLEDGER_ICON.png' -Force
+          Copy-Item 'autoledger-r8\assets\AUTOLEDGER_ICON.ico' 'source-package\pro\effective-source\assets\AUTOLEDGER_ICON.ico' -Force
+          Copy-Item 'autoledger-r8\assets\AUTOLEDGER_LOGO_MODERN.png' 'source-package\pro\effective-source\assets\AUTOLEDGER_LOGO_MODERN.png' -Force
+
+          Get-ChildItem 'source-package\free\effective-source' -Include *.py,*.pyw -File | ForEach-Object {
+            python -m py_compile $_.FullName
+            if ($LASTEXITCODE -ne 0) { throw "Compile failed: $($_.FullName)" }
+          }
+          Get-ChildItem 'source-package\pro\effective-source' -Include *.py,*.pyw -File | ForEach-Object {
+            python -m py_compile $_.FullName
+            if ($LASTEXITCODE -ne 0) { throw "Compile failed: $($_.FullName)" }
+          }
+
+      - name: Add installer, build, reconstruction and Help source
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          foreach ($edition in @('free','pro')) {
+            New-Item -ItemType Directory -Force "source-package\$edition\build-and-installer" | Out-Null
+            New-Item -ItemType Directory -Force "source-package\$edition\source-history\desktop-transforms" | Out-Null
+            New-Item -ItemType Directory -Force "source-package\$edition\source-history\assets-source" | Out-Null
+            Copy-Item 'AUTOLEDGER_GUIDED_TUTORIAL_UPDATE_POLICY.md' "source-package\$edition\build-and-installer\" -Force
+            Copy-Item 'autoledger-r8\EULA.txt' "source-package\$edition\build-and-installer\EULA.txt" -Force
+            Copy-Item 'autoledger-r8\r8_core_transform.py' "source-package\$edition\build-and-installer\" -Force
+            Copy-Item 'autoledger-r10\r10_common_transform.py' "source-package\$edition\build-and-installer\" -Force
+            Copy-Item 'autoledger-r10\guided_tutorial.py' "source-package\$edition\build-and-installer\" -Force
+            Copy-Item 'autoledger-r9\help_topics.py' "source-package\$edition\build-and-installer\" -Force
+            Copy-Item 'autoledger-r9\help_inventory.py' "source-package\$edition\build-and-installer\" -Force
+            Copy-Item 'autoledger-r9\help_coverage_test.py' "source-package\$edition\build-and-installer\" -Force
+            Copy-Item 'autoledger-r8\generate_assets.py' "source-package\$edition\build-and-installer\" -Force
+            Copy-Item 'desktop\tutorial_ci_diagnostic.py' "source-package\$edition\source-history\" -Force
+            Copy-Item 'desktop\diag_v22_clean.pyw' "source-package\$edition\source-history\reconstructed_v2.2_clean.pyw" -Force
+            Copy-Item 'desktop\diag_v11122_personal.pyw' "source-package\$edition\source-history\reconstructed_v1.11.22.pyw" -Force
+            Get-ChildItem 'desktop' -File | Where-Object { $_.Name -match '^v1\.11\..*_transform\.py$' -or $_.Name -eq 'v2.2_clean_feedback_transform.py' } | ForEach-Object {
+              Copy-Item $_.FullName "source-package\$edition\source-history\desktop-transforms\$($_.Name)" -Force
+            }
+            if (Test-Path 'autoledger-r8\assets_source') { Copy-Item 'autoledger-r8\assets_source\*' "source-package\$edition\source-history\assets-source\" -Force }
+          }
+
+          # Preserve the original v1.11 source that reconstruction starts from.
+          git fetch origin feature/v1.11-allocation-controls
+          git show origin/feature/v1.11-allocation-controls:desktop/v1.11_final.pyw | Out-File -Encoding utf8 'source-package\free\source-history\original_v1.11_final.pyw'
+          git show origin/feature/v1.11-allocation-controls:desktop/v1.11_final.pyw | Out-File -Encoding utf8 'source-package\pro\source-history\original_v1.11_final.pyw'
+
+          Copy-Item 'autoledger-r10\free_full.iss' 'source-package\free\build-and-installer\free_full.iss' -Force
+          Copy-Item 'autoledger-r10\free_update.iss' 'source-package\free\build-and-installer\free_update.iss' -Force
+          Copy-Item 'autoledger-r10\pro_full.iss' 'source-package\pro\build-and-installer\pro_full.iss' -Force
+          Copy-Item 'autoledger-r10\pro_update.iss' 'source-package\pro\build-and-installer\pro_update.iss' -Force
+          Copy-Item '.github\workflows\autoledger-r10-final2-build.yml' 'source-package\free\build-and-installer\validated_windows_build_workflow.yml' -Force
+          Copy-Item '.github\workflows\autoledger-r10-final2-build.yml' 'source-package\pro\build-and-installer\validated_windows_build_workflow.yml' -Force
+
+          # Pro source includes the complete public activation backend source.
+          Copy-Item 'activation-service' 'source-package\pro\activation-service' -Recurse -Force
+
+      - name: Add source READMEs and manifests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $freeReadme = @'
+AUTOLEDGER Free v2.2.5 R10 - COMPLETE SOURCE
+=============================================
+Validated application baseline: 865c31ce7a76aec82157b85048749f5cd959edbd
+Windows validation run: 33276213286
+
+Folders:
+- effective-source: exact final Python source tree used to build the R10 Free executable.
+- build-and-installer: guided tutorial/help/build/installer source and validated workflow.
+- source-history: original/reconstructed source plus the complete transform chain used to create v2.2/R10.
+
+This archive intentionally contains source code, not the bundled Python runtime or compiled installer.
+'@
+          $freeReadme | Out-File -Encoding utf8 'source-package\free\SOURCE_README.txt'
+
+          $proReadme = @'
+AUTOLEDGER Pro v2.2.5 R10 - COMPLETE SOURCE
+============================================
+Validated application baseline: 865c31ce7a76aec82157b85048749f5cd959edbd
+Windows validation run: 33276213286
+Permanent entitlement format: ALP225R6
+
+Folders:
+- effective-source: exact final Python source tree used to build the R10 Pro executable.
+- build-and-installer: guided tutorial/help/build/installer source and validated workflow.
+- source-history: original/reconstructed source plus the complete transform chain used to create v2.2/R10.
+- activation-service: complete public/server activation-service source.
+
+SECURITY: The permanent Pro entitlement PRIVATE signing key is NOT placed in this Pro archive. It belongs only in the separate INTERNAL KeyGen source package. Public verification keys used by Pro are included here.
+'@
+          $proReadme | Out-File -Encoding utf8 'source-package\pro\SOURCE_README.txt'
+
+          foreach ($edition in @('free','pro')) {
+            $root = Resolve-Path "source-package\$edition"
+            $manifest = Join-Path $root 'SOURCE_FILE_MANIFEST_SHA256.txt'
+            Get-ChildItem $root -Recurse -File | Where-Object { $_.FullName -ne $manifest } | Sort-Object FullName | ForEach-Object {
+              $rel = $_.FullName.Substring($root.Path.Length + 1).Replace('\\','/')
+              $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower()
+              "$hash  $rel"
+            } | Out-File -Encoding ascii $manifest
+          }
+
+      - name: Verify complete-source requirements before packaging
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $freeRequired = @(
+            'effective-source\autoledger_core.py',
+            'effective-source\autoledger_common.py',
+            'effective-source\help_topics.py',
+            'effective-source\guided_tutorial.py',
+            'effective-source\free_runner.pyw',
+            'build-and-installer\free_full.iss',
+            'build-and-installer\free_update.iss',
+            'source-history\reconstructed_v2.2_clean.pyw',
+            'source-history\original_v1.11_final.pyw'
+          )
+          $proRequired = @(
+            'effective-source\autoledger_core.py',
+            'effective-source\autoledger_common.py',
+            'effective-source\help_topics.py',
+            'effective-source\guided_tutorial.py',
+            'effective-source\pro_runner.pyw',
+            'effective-source\license_crypto.py',
+            'effective-source\activation_crypto.py',
+            'effective-source\device_identity.py',
+            'effective-source\pro_licensing.py',
+            'build-and-installer\pro_full.iss',
+            'build-and-installer\pro_update.iss',
+            'source-history\reconstructed_v2.2_clean.pyw',
+            'source-history\original_v1.11_final.pyw',
+            'activation-service\package.json',
+            'activation-service\schema.sql'
+          )
+          foreach ($r in $freeRequired) { if (!(Test-Path "source-package\free\$r")) { throw "Missing Free source: $r" } }
+          foreach ($r in $proRequired) { if (!(Test-Path "source-package\pro\$r")) { throw "Missing Pro source: $r" } }
+
+          $freeCore = (Get-Item 'source-package\free\effective-source\autoledger_core.py').Length
+          $proCore = (Get-Item 'source-package\pro\effective-source\autoledger_core.py').Length
+          if ($freeCore -lt 100000) { throw "Free effective core is suspiciously small: $freeCore" }
+          if ($proCore -lt 100000) { throw "Pro effective core is suspiciously small: $proCore" }
+
+          $freePy = @(Get-ChildItem 'source-package\free' -Recurse -File -Include *.py,*.pyw).Count
+          $proPy = @(Get-ChildItem 'source-package\pro' -Recurse -File -Include *.py,*.pyw).Count
+          if ($freePy -lt 30) { throw "Free package contains too few Python source files: $freePy" }
+          if ($proPy -lt 35) { throw "Pro package contains too few Python source files: $proPy" }
+          Write-Host "PASS complete source gate: Free Python files=$freePy, Pro Python files=$proPy, core sizes=$freeCore/$proCore"
+
+      - name: Create corrected source ZIP files
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          New-Item -ItemType Directory -Force 'source-output' | Out-Null
+          Compress-Archive -Path 'source-package\free\*' -DestinationPath 'source-output\AUTOLEDGER_Free_v2.2.5_R10_COMPLETE_SOURCE_CORRECTED.zip' -CompressionLevel Optimal
+          Compress-Archive -Path 'source-package\pro\*' -DestinationPath 'source-output\AUTOLEDGER_Pro_v2.2.5_R10_COMPLETE_SOURCE_CORRECTED.zip' -CompressionLevel Optimal
+          Get-ChildItem 'source-output\*.zip' | ForEach-Object {
+            $hash=(Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower()
+            "$hash  $($_.Name)"
+          } | Out-File -Encoding ascii 'source-output\AUTOLEDGER_R10_COMPLETE_SOURCE_CORRECTED_SHA256.txt'
+
+      - name: Upload corrected complete source
+        uses: actions/upload-artifact@v4
+        with:
+          name: AUTOLEDGER-R10-CORRECT-COMPLETE-SOURCE
+          path: source-output/*
+          if-no-files-found: error
