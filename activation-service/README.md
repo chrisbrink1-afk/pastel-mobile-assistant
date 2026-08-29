@@ -40,6 +40,6 @@ The server compares hashed SMBIOS system UUID, baseboard serial and BIOS serial.
 
 ## Recommended production hostname
 
-`https://api.autoledger.co.za`
+`https://api.autoledgersystems.co.za`
 
 The DNS hostname can point to a Vercel deployment. A managed PostgreSQL/Neon database is sufficient; no dedicated physical server is required.
