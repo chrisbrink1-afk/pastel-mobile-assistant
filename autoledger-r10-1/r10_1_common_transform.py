@@ -22,7 +22,7 @@ def main(path: str) -> None:
     )
 
     old_install = '    install_guided_tutorial(core, edition, licence_info, revision=UPDATE_REVISION)\n'
-    new_install = '''    # R10.1 is a corrective update. Register its user-facing change so an\n    # updated installation starts with NEW IN THIS UPDATE, while a clean\n    # installation continues to start with the normal beginner Welcome flow.\n    guided_tutorial_module.UPDATE_FEATURES_BY_REVISION.setdefault(\n        UPDATE_REVISION,\n        (\n            {\n                "id": "update_r101_tutorial_render_fix",\n                "title": "Guided Tutorial display reliability",\n                "body": (\n                    "R10.1 fixes a problem where the Guided Tutorial could open as a blank window after an update. "\n                    "The tutorial now waits for the main AUTOLEDGER window to finish loading, verifies that the current "\n                    "instruction title and body are visible, and automatically re-renders them if necessary."\n                ),\n            },\n        ),\n    )\n    install_guided_tutorial(core, edition, licence_info, revision=UPDATE_REVISION)\n    install_tutorial_render_fix(core, edition, licence_info, revision=UPDATE_REVISION)\n'''
+    new_install = '''    # R10.1 is a corrective update. Register its user-facing change so an\n    # updated installation starts with NEW IN THIS UPDATE, while a clean\n    # installation continues to start with the normal beginner Welcome flow.\n    guided_tutorial_module.UPDATE_FEATURES_BY_REVISION.setdefault(\n        UPDATE_REVISION,\n        (\n            {\n                "id": "update_r101_tutorial_render_fix",\n                "title": "Guided Tutorial display reliability",\n                "body": (\n                    "R10.1 fixes a problem where the Guided Tutorial could open as a blank window after an update. "\n                    "The invalid tutorial-footer padding has been corrected. AUTOLEDGER also waits for the main window "\n                    "to finish loading, verifies that the current instruction title and body are visible, and automatically "\n                    "re-renders them if necessary."\n                ),\n            },\n        ),\n    )\n    install_guided_tutorial(core, edition, licence_info, revision=UPDATE_REVISION)\n    install_tutorial_render_fix(core, edition, licence_info, revision=UPDATE_REVISION)\n'''
     s = replace_once(s, old_install, new_install, 'install R10.1 tutorial render fix')
 
     smoke_anchor = '''        app.withdraw()\n        app.update_idletasks()\n'''
@@ -31,7 +31,31 @@ def main(path: str) -> None:
 
     s = s.replace('R10 BUILD TEST', 'R10.1 BUILD TEST')
     p.write_text(s, encoding="utf-8")
+
+    # ROOT CAUSE OF THE R10 BLANK TUTORIAL:
+    # tkinter.Frame padx/pady accept a single screen-distance value, not the
+    # two-element tuple accepted by pack/grid external padding. R10 used
+    # pady=(0, 14) while constructing the footer Frame. Tk raised:
+    #   TclError: bad screen distance "0 14"
+    # after the Toplevel existed but before the tutorial content was displayed.
+    guided = p.parent / "guided_tutorial.py"
+    g = guided.read_text(encoding="utf-8")
+    g = replace_once(
+        g,
+        'footer = core.tk.Frame(win, bg="#f4f7fb", padx=14, pady=(0, 14))',
+        'footer = core.tk.Frame(win, bg="#f4f7fb", padx=14, pady=0)',
+        'invalid R10 footer Frame pady',
+    )
+    g = replace_once(
+        g,
+        'footer.pack(fill="x")',
+        'footer.pack(fill="x", pady=(0, 14))',
+        'move footer external padding to pack',
+    )
+    guided.write_text(g, encoding="utf-8")
+
     print(f"Updated {p} for R10.1 tutorial rendering fix")
+    print(f"Corrected invalid Tk Frame padding in {guided}")
 
 
 if __name__ == '__main__':
