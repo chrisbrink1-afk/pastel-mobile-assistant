@@ -42,6 +42,9 @@ def install_tutorial_render_fix(core, edition: str, licence_info=None, revision:
             pass
         try:
             gate = str(self._r10_guided_gate_var.get() or "").strip()
+            # Keep diagnostic snapshots printable on legacy Windows console
+            # encodings. The actual tutorial UI continues to display the checkmark.
+            gate = gate.replace("✓", "OK")
         except Exception:
             pass
         win = getattr(self, "_r10_guided_window", None)
@@ -73,9 +76,6 @@ def install_tutorial_render_fix(core, edition: str, licence_info=None, revision:
         except Exception:
             return False
 
-        # Give the underlying page navigation/layout one chance to finish, then
-        # explicitly render the current step again. This is intentionally
-        # idempotent and safe to call more than once.
         try:
             win.deiconify()
             win.update_idletasks()
@@ -91,8 +91,6 @@ def install_tutorial_render_fix(core, edition: str, licence_info=None, revision:
                 pass
             snap = _render_snapshot(self)
 
-        # Make sure an updated installation cannot leave a tutorial behind the
-        # main application window or outside the normal visible stacking order.
         try:
             win.lift()
             win.attributes("-topmost", True)
@@ -106,10 +104,6 @@ def install_tutorial_render_fix(core, edition: str, licence_info=None, revision:
 
     def fixed_start_guided_tutorial(self, mode: str | None = None):
         result = original_start(self, mode)
-
-        # First pass immediately, then two event-loop passes. The delayed passes
-        # are what protects real update starts where navigation and edition UI
-        # wrappers may still be completing their initial layout.
         _ensure_rendered(self)
         try:
             self.after_idle(lambda: _ensure_rendered(self))
@@ -120,9 +114,6 @@ def install_tutorial_render_fix(core, edition: str, licence_info=None, revision:
         return result
 
     def fixed_maybe_start_tutorial(self) -> None:
-        # Do not create a Toplevel synchronously from inside App.__init__. Instead
-        # schedule it after the root window has been laid out and Tk is processing
-        # normal events. This is the primary R10 -> R10.1 blank-screen fix.
         if getattr(self, "_r101_auto_tutorial_scheduled", False):
             return
         try:
@@ -142,8 +133,6 @@ def install_tutorial_render_fix(core, edition: str, licence_info=None, revision:
             try:
                 self.start_guided_tutorial(mode)
             except Exception as exc:
-                # Never silently replace instructions with a blank window. Keep a
-                # diagnostic for support/build tests and close any half-built UI.
                 self._r101_tutorial_launch_error = repr(exc)
                 try:
                     self._r10_close_guided()
