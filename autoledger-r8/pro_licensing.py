@@ -10,7 +10,7 @@ from device_identity import current_device_identity
 from license_crypto import decode_and_verify_key
 
 APP_NAMESPACE = "AUTOLEDGER_V225_TEST_Pro"
-ACTIVATION_URL = os.environ.get("AUTOLEDGER_ACTIVATION_URL", "https://api.autoledger.co.za").rstrip("/")
+ACTIVATION_URL = os.environ.get("AUTOLEDGER_ACTIVATION_URL", "https://api.autoledgersystems.co.za").rstrip("/")
 HTTP_TIMEOUT = 8
 
 def app_data_dir() -> Path:
