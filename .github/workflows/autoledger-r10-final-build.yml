@@ -1,0 +1,350 @@
+name: AUTOLEDGER R10 Final Guided Tutorial Windows Build
+
+on:
+  push:
+    branches:
+      - autoledger-r10-guided-tutorial
+    paths:
+      - '.github/workflows/autoledger-r10-final-build.yml'
+      - 'autoledger-r10/**'
+      - 'autoledger-r9/**'
+      - 'autoledger-r8/**'
+      - 'activation-service/**'
+      - 'AUTOLEDGER_GUIDED_TUTORIAL_UPDATE_POLICY.md'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Validate activation service logic
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Push-Location 'activation-service'
+          node test.mjs
+          if ($LASTEXITCODE -ne 0) { throw 'Activation-service tests failed' }
+          Pop-Location
+
+      - name: Reconstruct and validate original v2.2 Clean source
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          python desktop/tutorial_ci_diagnostic.py
+          if ($LASTEXITCODE -ne 0) { throw 'Original v2.2 reconstruction/regression suite failed' }
+          if (!(Test-Path 'desktop\diag_v22_clean.pyw')) { throw 'Reconstructed source was not produced' }
+
+      - name: Validate permanent R6 entitlement and activation signatures
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Push-Location 'autoledger-r8'
+          python test_licensing_vectors.py
+          if ($LASTEXITCODE -ne 0) { throw 'R6 entitlement compatibility test failed' }
+          Pop-Location
+
+      - name: Recreate AUTOLEDGER branding assets
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          python -m pip install --quiet pillow
+          python autoledger-r8/generate_assets.py
+          if ($LASTEXITCODE -ne 0) { throw 'Asset generation failed' }
+          New-Item -ItemType Directory -Force 'autoledger-r10\assets' | Out-Null
+          Copy-Item 'autoledger-r8\assets\*' 'autoledger-r10\assets' -Force
+          Copy-Item 'autoledger-r8\EULA.txt' 'autoledger-r10\EULA.txt' -Force
+
+      - name: Prepare exact R10 Free and Pro source trees
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Remove-Item 'autoledger-r10\work' -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force 'autoledger-r10\work\free\assets' | Out-Null
+          New-Item -ItemType Directory -Force 'autoledger-r10\work\pro\assets' | Out-Null
+
+          Copy-Item 'desktop\diag_v22_clean.pyw' 'autoledger-r10\work\free\autoledger_core.py' -Force
+          Copy-Item 'desktop\diag_v22_clean.pyw' 'autoledger-r10\work\pro\autoledger_core.py' -Force
+          python 'autoledger-r8\r8_core_transform.py' 'autoledger-r10\work\free\autoledger_core.py'
+          if ($LASTEXITCODE -ne 0) { throw 'Free core transform failed' }
+          python 'autoledger-r8\r8_core_transform.py' 'autoledger-r10\work\pro\autoledger_core.py'
+          if ($LASTEXITCODE -ne 0) { throw 'Pro core transform failed' }
+
+          Copy-Item 'autoledger-r8\autoledger_common.py' 'autoledger-r10\work\free\autoledger_common.py' -Force
+          Copy-Item 'autoledger-r8\autoledger_common.py' 'autoledger-r10\work\pro\autoledger_common.py' -Force
+          python 'autoledger-r10\r10_common_transform.py' 'autoledger-r10\work\free\autoledger_common.py'
+          if ($LASTEXITCODE -ne 0) { throw 'Free common R10 transform failed' }
+          python 'autoledger-r10\r10_common_transform.py' 'autoledger-r10\work\pro\autoledger_common.py'
+          if ($LASTEXITCODE -ne 0) { throw 'Pro common R10 transform failed' }
+
+          Copy-Item 'autoledger-r9\help_topics.py' 'autoledger-r10\work\free\help_topics.py' -Force
+          Copy-Item 'autoledger-r9\help_topics.py' 'autoledger-r10\work\pro\help_topics.py' -Force
+          Copy-Item 'autoledger-r10\guided_tutorial.py' 'autoledger-r10\work\free\guided_tutorial.py' -Force
+          Copy-Item 'autoledger-r10\guided_tutorial.py' 'autoledger-r10\work\pro\guided_tutorial.py' -Force
+          Copy-Item 'autoledger-r8\free_runner.pyw' 'autoledger-r10\work\free\free_runner.pyw' -Force
+          Copy-Item 'autoledger-r8\pro_runner.pyw' 'autoledger-r10\work\pro\pro_runner.pyw' -Force
+          Copy-Item 'autoledger-r8\license_crypto.py' 'autoledger-r10\work\pro\license_crypto.py' -Force
+          Copy-Item 'autoledger-r8\activation_crypto.py' 'autoledger-r10\work\pro\activation_crypto.py' -Force
+          Copy-Item 'autoledger-r8\device_identity.py' 'autoledger-r10\work\pro\device_identity.py' -Force
+          Copy-Item 'autoledger-r8\pro_licensing.py' 'autoledger-r10\work\pro\pro_licensing.py' -Force
+          Copy-Item 'autoledger-r10\assets\*' 'autoledger-r10\work\free\assets' -Force
+          Copy-Item 'autoledger-r10\assets\*' 'autoledger-r10\work\pro\assets' -Force
+
+          Get-ChildItem 'autoledger-r10\work\free' -Include *.py,*.pyw -File | ForEach-Object { python -m py_compile $_.FullName; if ($LASTEXITCODE -ne 0) { throw "Compile failed: $($_.FullName)" } }
+          Get-ChildItem 'autoledger-r10\work\pro' -Include *.py,*.pyw -File | ForEach-Object { python -m py_compile $_.FullName; if ($LASTEXITCODE -ne 0) { throw "Compile failed: $($_.FullName)" } }
+
+      - name: Prove clean/update tutorial ordering and permanent release policy
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Push-Location 'autoledger-r10\work\free'
+          python -c "import guided_tutorial as g; c=g.guided_step_ids('clean'); u=g.guided_step_ids('update'); assert c[0]=='welcome'; assert 'update_intro' not in c; assert u[0]=='update_intro'; assert len(g.UPDATE_FEATURES_BY_REVISION['R10']) >= 1; print('clean first:',c[0]); print('update first:',u[0]); print('update features:',len(g.UPDATE_FEATURES_BY_REVISION['R10']))"
+          if ($LASTEXITCODE -ne 0) { throw 'R10 tutorial ordering test failed' }
+          python -c "import autoledger_common as c; c.configure('FREE'); import autoledger_core as core; assert hasattr(core.App,'start_guided_tutorial'); ids={t['id'] for t in core.TUTORIAL_TOPICS}; assert {'guided_tutorial','tutorial_after_update','tutorial_completion_gates','run_tutorial_again'}.issubset(ids); print('help topics:',len(core.TUTORIAL_TOPICS))"
+          if ($LASTEXITCODE -ne 0) { throw 'R10 guided tutorial installation/help test failed' }
+          Pop-Location
+
+      - name: Audit UI and prove complete beginner Help coverage
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Remove-Item 'autoledger-r10\audit-output' -Recurse -Force -ErrorAction SilentlyContinue
+          python 'autoledger-r9\help_inventory.py' 'autoledger-r10\work\free\autoledger_core.py' 'autoledger-r10\audit-output'
+          if ($LASTEXITCODE -ne 0) { throw 'UI inventory failed' }
+          Push-Location 'autoledger-r9'
+          python help_coverage_test.py '..\autoledger-r10\audit-output\ui_feature_inventory.json'
+          if ($LASTEXITCODE -ne 0) { throw 'Complete-help coverage test failed' }
+          Pop-Location
+
+      - name: Build self-contained R10 Windows applications
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          python -m pip install --upgrade pyinstaller
+          Push-Location 'autoledger-r10\work\free'
+          python -m PyInstaller --noconfirm --clean --onedir --windowed --icon 'assets\AUTOLEDGER_ICON.ico' --add-data 'assets;assets' --name 'AUTOLEDGER Free v2.2.5 R10 TEST' free_runner.pyw
+          $freeExit=$LASTEXITCODE
+          Pop-Location
+          if ($freeExit -ne 0) { throw 'Free R10 build failed' }
+          Push-Location 'autoledger-r10\work\pro'
+          python -m PyInstaller --noconfirm --clean --onedir --windowed --icon 'assets\AUTOLEDGER_ICON.ico' --add-data 'assets;assets' --name 'AUTOLEDGER Pro v2.2.5 R10 TEST' pro_runner.pyw
+          $proExit=$LASTEXITCODE
+          Pop-Location
+          if ($proExit -ne 0) { throw 'Pro R10 build failed' }
+
+      - name: Smoke-test bundled R10 applications
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $free = Resolve-Path 'autoledger-r10\work\free\dist\AUTOLEDGER Free v2.2.5 R10 TEST\AUTOLEDGER Free v2.2.5 R10 TEST.exe'
+          $pro = Resolve-Path 'autoledger-r10\work\pro\dist\AUTOLEDGER Pro v2.2.5 R10 TEST\AUTOLEDGER Pro v2.2.5 R10 TEST.exe'
+          $p = Start-Process -FilePath $free -ArgumentList '--smoke-test' -PassThru -Wait
+          if ($p.ExitCode -ne 0) { throw "Free R10 smoke test failed: $($p.ExitCode)" }
+          $p = Start-Process -FilePath $pro -ArgumentList '--smoke-test' -PassThru -Wait
+          if ($p.ExitCode -ne 0) { throw "Pro R10 smoke test failed: $($p.ExitCode)" }
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $iscc = 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe'
+          if (!(Test-Path $iscc)) { choco install innosetup -y --no-progress }
+          if (!(Test-Path $iscc)) { throw 'Inno Setup 6 not found' }
+
+      - name: Create R10 Update and Full installers
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Remove-Item 'autoledger-r10\package' -Recurse -Force -ErrorAction SilentlyContinue
+          Remove-Item 'autoledger-r10\output' -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force 'autoledger-r10\package\free' | Out-Null
+          New-Item -ItemType Directory -Force 'autoledger-r10\package\pro' | Out-Null
+          New-Item -ItemType Directory -Force 'autoledger-r10\output' | Out-Null
+          Copy-Item 'autoledger-r10\work\free\dist\AUTOLEDGER Free v2.2.5 R10 TEST\*' 'autoledger-r10\package\free' -Recurse -Force
+          Copy-Item 'autoledger-r10\work\pro\dist\AUTOLEDGER Pro v2.2.5 R10 TEST\*' 'autoledger-r10\package\pro' -Recurse -Force
+          Push-Location 'autoledger-r10'
+          foreach ($iss in @('free_update.iss','free_full.iss','pro_update.iss','pro_full.iss')) {
+            & 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe' $iss
+            if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed: $iss" }
+          }
+          Pop-Location
+
+      - name: Prove Update supports all older application revisions and refuses a clean PC
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          foreach ($script in @('autoledger-r10\free_update.iss','autoledger-r10\pro_update.iss')) {
+            $txt = Get-Content $script -Raw
+            foreach ($rev in @('R6','R8','R9')) {
+              if ($txt -notmatch $rev) { throw "$script does not recognise older $rev installations" }
+            }
+          }
+          Remove-Item (Join-Path $env:LOCALAPPDATA 'Programs\AUTOLEDGER Free') -Recurse -Force -ErrorAction SilentlyContinue
+          Remove-Item (Join-Path $env:LOCALAPPDATA 'Programs\AUTOLEDGER Pro') -Recurse -Force -ErrorAction SilentlyContinue
+          $update = Resolve-Path 'autoledger-r10\output\AUTOLEDGER_Free_v2.2.5_R10_UPDATE_from_OLDER_TEST_Setup.exe'
+          $p = Start-Process -FilePath $update -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART') -PassThru -Wait
+          if ($p.ExitCode -eq 0) { throw 'R10 Update unexpectedly installed on a clean PC' }
+
+      - name: Install R10 Full packages in isolated clean state and prove clean tutorial marker
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $defaultFree = Join-Path $env:LOCALAPPDATA 'Programs\AUTOLEDGER Free'
+          $defaultPro = Join-Path $env:LOCALAPPDATA 'Programs\AUTOLEDGER Pro'
+          $freeData = Join-Path $env:APPDATA 'AUTOLEDGER_V225_TEST_Free'
+          $proData = Join-Path $env:APPDATA 'AUTOLEDGER_V225_TEST_Pro'
+          Remove-Item $defaultFree -Recurse -Force -ErrorAction SilentlyContinue
+          Remove-Item $defaultPro -Recurse -Force -ErrorAction SilentlyContinue
+          Remove-Item $freeData -Recurse -Force -ErrorAction SilentlyContinue
+          Remove-Item $proData -Recurse -Force -ErrorAction SilentlyContinue
+
+          $freeSetup = Resolve-Path 'autoledger-r10\output\AUTOLEDGER_Free_v2.2.5_R10_FULL_STANDALONE_TEST_Setup.exe'
+          $proSetup = Resolve-Path 'autoledger-r10\output\AUTOLEDGER_Pro_v2.2.5_R10_FULL_STANDALONE_TEST_Setup.exe'
+          $freeFull = Join-Path $env:RUNNER_TEMP 'AUTOLEDGER_Free_R10_FULL'
+          $proFull = Join-Path $env:RUNNER_TEMP 'AUTOLEDGER_Pro_R10_FULL'
+          Remove-Item $freeFull -Recurse -Force -ErrorAction SilentlyContinue
+          Remove-Item $proFull -Recurse -Force -ErrorAction SilentlyContinue
+
+          $p = Start-Process -FilePath $freeSetup -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',"/DIR=$freeFull") -PassThru -Wait
+          if ($p.ExitCode -ne 0) { throw 'Free R10 Full install failed' }
+          $p = Start-Process -FilePath $proSetup -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',"/DIR=$proFull") -PassThru -Wait
+          if ($p.ExitCode -ne 0) { throw 'Pro R10 Full install failed' }
+
+          $freeContextPath = Join-Path $freeData 'install_context_r10.json'
+          $proContextPath = Join-Path $proData 'install_context_r10.json'
+          if (!(Test-Path $freeContextPath)) { throw 'Free Full did not create tutorial context marker' }
+          if (!(Test-Path $proContextPath)) { throw 'Pro Full did not create tutorial context marker' }
+          $freeContext = Get-Content $freeContextPath -Raw
+          $proContext = Get-Content $proContextPath -Raw
+          if ($freeContext -notmatch '"install_kind":"clean"') { throw "Free Full did not write clean tutorial context: $freeContext" }
+          if ($proContext -notmatch '"install_kind":"clean"') { throw "Pro Full did not write clean tutorial context: $proContext" }
+
+          $p = Start-Process -FilePath (Join-Path $freeFull 'AUTOLEDGER Free v2.2.5 R10 TEST.exe') -ArgumentList '--smoke-test' -PassThru -Wait
+          if ($p.ExitCode -ne 0) { throw 'Free R10 Full smoke failed' }
+          $p = Start-Process -FilePath (Join-Path $proFull 'AUTOLEDGER Pro v2.2.5 R10 TEST.exe') -ArgumentList '--smoke-test' -PassThru -Wait
+          if ($p.ExitCode -ne 0) { throw 'Pro R10 Full smoke failed' }
+
+      - name: Install R10 Update over seeded R6 state and prove preservation and update tutorial marker
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $freeDir = Join-Path $env:LOCALAPPDATA 'Programs\AUTOLEDGER Free'
+          $proDir = Join-Path $env:LOCALAPPDATA 'Programs\AUTOLEDGER Pro'
+          $freeData = Join-Path $env:APPDATA 'AUTOLEDGER_V225_TEST_Free'
+          $proData = Join-Path $env:APPDATA 'AUTOLEDGER_V225_TEST_Pro'
+          Remove-Item $freeDir -Recurse -Force -ErrorAction SilentlyContinue
+          Remove-Item $proDir -Recurse -Force -ErrorAction SilentlyContinue
+          Remove-Item $freeData -Recurse -Force -ErrorAction SilentlyContinue
+          Remove-Item $proData -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force $freeDir | Out-Null
+          New-Item -ItemType Directory -Force $proDir | Out-Null
+          New-Item -ItemType Directory -Force $freeData | Out-Null
+          New-Item -ItemType Directory -Force $proData | Out-Null
+          Set-Content -Path (Join-Path $freeDir 'AUTOLEDGER Free v2.2.5 R6 TEST.exe') -Value 'R6 marker'
+          Set-Content -Path (Join-Path $proDir 'AUTOLEDGER Pro v2.2.5 R6 TEST.exe') -Value 'R6 marker'
+          '{"version":1,"months":{"2026-08":{"used":37,"statements":{}}}}' | Set-Content (Join-Path $freeData 'free_usage_r6.json') -Encoding utf8
+          $freeBefore = (Get-FileHash (Join-Path $freeData 'free_usage_r6.json') -Algorithm SHA256).Hash
+          $key = (Get-Content 'autoledger-r8\testdata\R6_SAMPLE_ENTITLEMENT_KEY.txt' -Raw).Trim()
+          @{version=1;key=$key;payload=@{license_id='R6TEST446168C5'}} | ConvertTo-Json -Depth 5 | Set-Content (Join-Path $proData 'pro_licence_r6.json') -Encoding utf8
+
+          foreach ($setup in @(
+            (Resolve-Path 'autoledger-r10\output\AUTOLEDGER_Free_v2.2.5_R10_UPDATE_from_OLDER_TEST_Setup.exe'),
+            (Resolve-Path 'autoledger-r10\output\AUTOLEDGER_Pro_v2.2.5_R10_UPDATE_from_OLDER_TEST_Setup.exe')
+          )) {
+            $p = Start-Process -FilePath $setup -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART') -PassThru -Wait
+            if ($p.ExitCode -ne 0) { throw "R10 Update failed: $setup / $($p.ExitCode)" }
+          }
+
+          $freeContext = Get-Content (Join-Path $freeData 'install_context_r10.json') -Raw
+          $proContext = Get-Content (Join-Path $proData 'install_context_r10.json') -Raw
+          if ($freeContext -notmatch '"install_kind":"update"') { throw 'Free Update did not write update tutorial context' }
+          if ($proContext -notmatch '"install_kind":"update"') { throw 'Pro Update did not write update tutorial context' }
+          $freeExe = Join-Path $freeDir 'AUTOLEDGER Free v2.2.5 R10 TEST.exe'
+          $proExe = Join-Path $proDir 'AUTOLEDGER Pro v2.2.5 R10 TEST.exe'
+          if (!(Test-Path $freeExe) -or !(Test-Path $proExe)) { throw 'R10 Update executables missing' }
+          $p = Start-Process -FilePath $freeExe -ArgumentList '--smoke-test' -PassThru -Wait
+          if ($p.ExitCode -ne 0) { throw 'Installed Free R10 Update smoke failed' }
+          $p = Start-Process -FilePath $proExe -ArgumentList '--existing-licence-smoke-test' -PassThru -Wait
+          if ($p.ExitCode -ne 0) { throw 'Existing R6 Pro entitlement was not preserved/accepted by R10' }
+          $freeAfter = (Get-FileHash (Join-Path $freeData 'free_usage_r6.json') -Algorithm SHA256).Hash
+          if ($freeBefore -ne $freeAfter) { throw 'Free usage state changed during R10 Update' }
+
+      - name: Build complete Free and Pro source-code packages from exact build inputs
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Remove-Item 'autoledger-r10\source-release' -Recurse -Force -ErrorAction SilentlyContinue
+          foreach ($edition in @('free','pro')) {
+            $root = "autoledger-r10\source-release\$edition"
+            New-Item -ItemType Directory -Force "$root\effective-source\assets" | Out-Null
+            New-Item -ItemType Directory -Force "$root\build-and-installer" | Out-Null
+            Get-ChildItem "autoledger-r10\work\$edition" -Include *.py,*.pyw -File | Copy-Item -Destination "$root\effective-source" -Force
+            Copy-Item "autoledger-r10\work\$edition\assets\*" "$root\effective-source\assets" -Force
+            Copy-Item 'autoledger-r10\guided_tutorial.py' "$root\build-and-installer\guided_tutorial.py" -Force
+            Copy-Item 'autoledger-r10\r10_common_transform.py' "$root\build-and-installer\r10_common_transform.py" -Force
+            Copy-Item 'autoledger-r8\r8_core_transform.py' "$root\build-and-installer\r8_core_transform.py" -Force
+            Copy-Item 'autoledger-r10\EULA.txt' "$root\build-and-installer\EULA.txt" -Force
+            Copy-Item 'AUTOLEDGER_GUIDED_TUTORIAL_UPDATE_POLICY.md' "$root\build-and-installer\AUTOLEDGER_GUIDED_TUTORIAL_UPDATE_POLICY.md" -Force
+          }
+          Copy-Item 'autoledger-r10\free_full.iss' 'autoledger-r10\source-release\free\build-and-installer\free_full.iss' -Force
+          Copy-Item 'autoledger-r10\free_update.iss' 'autoledger-r10\source-release\free\build-and-installer\free_update.iss' -Force
+          Copy-Item 'autoledger-r10\pro_full.iss' 'autoledger-r10\source-release\pro\build-and-installer\pro_full.iss' -Force
+          Copy-Item 'autoledger-r10\pro_update.iss' 'autoledger-r10\source-release\pro\build-and-installer\pro_update.iss' -Force
+          @('AUTOLEDGER Free v2.2.5 R10 complete effective source','Generated from the exact source used by the successful Windows build.','No private licence-signing key is present in the Free source.') | Set-Content 'autoledger-r10\source-release\free\SOURCE_README.txt'
+          @('AUTOLEDGER Pro v2.2.5 R10 complete effective source','Generated from the exact source used by the successful Windows build.','Contains public licence/activation verification material only. The private permanent KeyGen signing key is supplied separately in the INTERNAL KeyGen source package.') | Set-Content 'autoledger-r10\source-release\pro\SOURCE_README.txt'
+          Compress-Archive -Path 'autoledger-r10\source-release\free\*' -DestinationPath 'autoledger-r10\output\AUTOLEDGER_Free_v2.2.5_R10_COMPLETE_SOURCE.zip' -Force
+          Compress-Archive -Path 'autoledger-r10\source-release\pro\*' -DestinationPath 'autoledger-r10\output\AUTOLEDGER_Pro_v2.2.5_R10_COMPLETE_SOURCE.zip' -Force
+
+      - name: Verify standalone runtime and prepare release files
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          foreach ($f in @(
+            'autoledger-r10\package\free\_internal\python312.dll',
+            'autoledger-r10\package\pro\_internal\python312.dll',
+            'autoledger-r10\package\free\_internal\_tkinter.pyd',
+            'autoledger-r10\package\pro\_internal\_tkinter.pyd',
+            'autoledger-r10\package\free\_internal\assets\AUTOLEDGER_LOGO_MODERN.png',
+            'autoledger-r10\package\pro\_internal\assets\AUTOLEDGER_ICON.ico'
+          )) { if (!(Test-Path $f)) { throw "Required standalone component missing: $f" } }
+          $setups = Get-ChildItem 'autoledger-r10\output\AUTOLEDGER_*_v2.2.5_R10_*_TEST_Setup.exe' | Sort-Object Name
+          if ($setups.Count -ne 4) { throw "Expected four R10 installers, found $($setups.Count)" }
+          $releaseFiles = Get-ChildItem 'autoledger-r10\output\*' -File | Sort-Object Name
+          $lines = foreach ($f in $releaseFiles) { "$((($f | Get-FileHash -Algorithm SHA256).Hash).ToLower())  $($f.Name)" }
+          $lines | Set-Content 'autoledger-r10\output\AUTOLEDGER_v2.2.5_R10_SHA256.txt'
+          Copy-Item 'autoledger-r10\audit-output\ui_feature_inventory.md' 'autoledger-r10\output\R10_UI_FEATURE_AUDIT.md' -Force
+          @(
+            'AUTOLEDGER v2.2.5 R10 GUIDED TUTORIAL TEST', '',
+            'Clean install: complete beginner tutorial; NEW IN THIS UPDATE is absent.',
+            'Update install: NEW IN THIS UPDATE is the first guided screen.',
+            'Required tutorial steps keep Next disabled until completion is detected.',
+            'An animated pointer identifies the control the user should use.',
+            'Tutorial example values are clearly labelled examples, including 8400000 for Cash Book bank GL.',
+            'Skip tutorial remains available; Guided Tutorial can be run again from Tutorial & Help.',
+            'Future revisions are blocked unless they define a NEW IN THIS UPDATE curriculum.', '',
+            'Installers supplied:',
+            '- Free UPDATE from R6/R8/R9', '- Free FULL / Stand-alone',
+            '- Pro UPDATE from R6/R8/R9', '- Pro FULL / Stand-alone', '',
+            'Complete Free and Pro source-code ZIPs are included.',
+            'Existing ALP225R6 Pro entitlements and R6 AppData namespaces remain unchanged.',
+            'No Python installation is required.',
+            'Publisher metadata: AUTOLEDGER SYSTEMS PTY LTD',
+            'Website: https://autoledgersystems.co.za',
+            'Pro activation endpoint: https://api.autoledgersystems.co.za',
+            'TEST builds remain unsigned until the Windows code-signing certificate is available.'
+          ) | Set-Content 'autoledger-r10\output\README_R10_TEST.txt'
+
+      - name: Upload finished R10 Windows installers and source
+        uses: actions/upload-artifact@v4
+        with:
+          name: AUTOLEDGER-v2.2.5-R10-GUIDED-TUTORIAL-WINDOWS-AND-SOURCE
+          path: autoledger-r10/output/*
+          if-no-files-found: error
