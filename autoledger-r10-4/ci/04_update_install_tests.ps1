@@ -1,5 +1,11 @@
 $ErrorActionPreference='Stop'
 
+foreach ($script in @('autoledger-r10-4\free_update.iss','autoledger-r10-4\pro_update.iss','autoledger-r10-4\free_full.iss','autoledger-r10-4\pro_full.iss')) {
+  $txt = Get-Content $script -Raw
+  if ($txt -notmatch '\[Run\]' -or $txt -notmatch 'postinstall' -or $txt -notmatch 'Run AUTOLEDGER') { throw "$script is missing the run-after-install checkbox" }
+  if ($txt -notmatch 'README_R10_4\.txt' -or $txt -notmatch 'README_AUTOLEDGER_R10_4\.txt') { throw "$script is missing the installed README" }
+}
+
 foreach ($script in @('autoledger-r10-4\free_update.iss','autoledger-r10-4\pro_update.iss')) {
   $txt = Get-Content $script -Raw
   foreach ($rev in @('R6','R8','R9','R10','R10.1','R10.2','R10.3')) {
@@ -52,6 +58,8 @@ if ((Get-FileHash (Join-Path $proData 'r104_preservation_marker.json') -Algorith
 
 if (!(Test-Path (Join-Path $freeDir 'AUTOLEDGER Free v2.2.5 R10.4 TEST.exe'))) { throw 'Free R10.4 executable missing after update' }
 if (!(Test-Path (Join-Path $proDir 'AUTOLEDGER Pro v2.2.5 R10.4 TEST.exe'))) { throw 'Pro R10.4 executable missing after update' }
+if (!(Test-Path (Join-Path $freeDir 'README_AUTOLEDGER_R10_4.txt'))) { throw 'Free R10.4 README missing after update' }
+if (!(Test-Path (Join-Path $proDir 'README_AUTOLEDGER_R10_4.txt'))) { throw 'Pro R10.4 README missing after update' }
 if (Test-Path (Join-Path $freeDir 'AUTOLEDGER Free v2.2.5 R10.3 TEST.exe')) { throw 'Old Free R10.3 executable was not retired' }
 if (Test-Path (Join-Path $proDir 'AUTOLEDGER Pro v2.2.5 R10.3 TEST.exe')) { throw 'Old Pro R10.3 executable was not retired' }
 
@@ -67,3 +75,5 @@ $fc = Get-Content (Join-Path $freeData 'install_context_r10.json') -Raw | Conver
 $pc = Get-Content (Join-Path $proData 'install_context_r10.json') -Raw | ConvertFrom-Json
 if ($fc.revision -ne 'R10.4' -or $fc.install_kind -ne 'clean') { throw 'Free R10.4 standalone context wrong' }
 if ($pc.revision -ne 'R10.4' -or $pc.install_kind -ne 'clean') { throw 'Pro R10.4 standalone context wrong' }
+if (!(Test-Path (Join-Path $freeDir 'README_AUTOLEDGER_R10_4.txt'))) { throw 'Free R10.4 README missing after full install' }
+if (!(Test-Path (Join-Path $proDir 'README_AUTOLEDGER_R10_4.txt'))) { throw 'Pro R10.4 README missing after full install' }
