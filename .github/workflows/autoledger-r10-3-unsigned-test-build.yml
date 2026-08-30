@@ -1,0 +1,38 @@
+name: AUTOLEDGER R10.3 Unsigned Test Build
+
+on:
+  push:
+    branches:
+      - autoledger-r10-3-inline-highlight-walkthrough-working2
+    paths:
+      - 'autoledger-r10-3/**'
+      - '.github/workflows/autoledger-r10-3-unsigned-test-build.yml'
+  workflow_dispatch:
+
+jobs:
+  build-unsigned:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Prepare R10.3 source
+        shell: pwsh
+        run: ./autoledger-r10-3/ci/01_prepare.ps1
+
+      - name: Build unsigned R10.3 installers
+        shell: pwsh
+        run: ./autoledger-r10-3/ci/03_build_unsigned.ps1
+
+      - name: Upload unsigned R10.3 installers
+        uses: actions/upload-artifact@v4
+        with:
+          name: AUTOLEDGER-v2.2.5-R10.3-UNSIGNED-TEST-INSTALLERS
+          path: autoledger-r10-3/output-unsigned/*
+          if-no-files-found: error
+          retention-days: 90
