@@ -34,10 +34,14 @@ Type: files; Name: "{app}\AUTOLEDGER Pro v2.2.5 R10.3 TEST.exe"
 [Files]
 Source: "package\pro\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "EULA.txt"; DestDir: "{app}"; Flags: ignoreversion
+Source: "README_R10_4.txt"; DestDir: "{app}"; DestName: "README_AUTOLEDGER_R10_4.txt"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\AUTOLEDGER Pro"; Filename: "{app}\AUTOLEDGER Pro v2.2.5 R10.4 TEST.exe"
 Name: "{autodesktop}\AUTOLEDGER Pro"; Filename: "{app}\AUTOLEDGER Pro v2.2.5 R10.4 TEST.exe"
+
+[Run]
+Filename: "{app}\AUTOLEDGER Pro v2.2.5 R10.4 TEST.exe"; Description: "Run AUTOLEDGER Pro after installation"; Flags: nowait postinstall skipifsilent
 
 [Code]
 var
