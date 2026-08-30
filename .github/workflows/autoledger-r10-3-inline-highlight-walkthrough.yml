@@ -1,0 +1,55 @@
+name: AUTOLEDGER R10.3 Inline Highlight Walkthrough Windows Build
+
+on:
+  push:
+    branches:
+      - autoledger-r10-3-inline-highlight-walkthrough-working2
+    paths:
+      - '.github/workflows/autoledger-r10-3-inline-highlight-walkthrough.yml'
+      - 'autoledger-r10-3/**'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 70
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Prepare source
+        shell: pwsh
+        run: ./autoledger-r10-3/ci/01_prepare.ps1
+
+      - name: Validate inline walkthrough
+        shell: pwsh
+        run: ./autoledger-r10-3/ci/02_acceptance.ps1
+
+      - name: Build applications and installers
+        shell: pwsh
+        run: ./autoledger-r10-3/ci/03_build.ps1
+
+      - name: Validate update and standalone installs
+        shell: pwsh
+        run: ./autoledger-r10-3/ci/04_install_tests.ps1
+
+      - name: Package validated release
+        shell: pwsh
+        run: ./autoledger-r10-3/ci/05_package.ps1
+
+      - name: Upload validated R10.3 installers and source
+        uses: actions/upload-artifact@v4
+        with:
+          name: AUTOLEDGER-v2.2.5-R10.3-INLINE-HIGHLIGHT-WALKTHROUGH-WINDOWS-AND-SOURCE
+          path: |
+            autoledger-r10-3/output/*.exe
+            autoledger-r10-3/output/*.zip
+            autoledger-r10-3/output/*.txt
+            autoledger-r10-3/audit-output/*
+          if-no-files-found: error
+          retention-days: 90
