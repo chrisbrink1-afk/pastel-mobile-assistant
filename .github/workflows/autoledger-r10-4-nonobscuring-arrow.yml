@@ -1,0 +1,61 @@
+name: AUTOLEDGER R10.4 Non-Obscuring Arrow Walkthrough
+
+on:
+  push:
+    branches:
+      - autoledger-r10-4-nonobscuring-arrow-walkthrough-working
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Prepare R10.4 source
+        shell: powershell
+        run: .\autoledger-r10-4\ci\01_prepare.ps1
+
+      - name: Validate non-obscuring arrow walkthrough
+        shell: powershell
+        run: .\autoledger-r10-4\ci\02_acceptance.ps1
+
+      - name: Build unsigned R10.4 installers
+        shell: powershell
+        run: .\autoledger-r10-4\ci\03_build_unsigned.ps1
+
+      - name: Validate R10.3-to-R10.4 update preservation and clean installs
+        shell: powershell
+        run: .\autoledger-r10-4\ci\04_update_install_tests.ps1
+
+      - name: Preserve effective R10.4 source
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Force 'autoledger-r10-4\source-handoff\free','autoledger-r10-4\source-handoff\pro','autoledger-r10-4\source-handoff\revision' | Out-Null
+          Copy-Item 'autoledger-r10-4\work\free\*.py*' 'autoledger-r10-4\source-handoff\free' -Force
+          Copy-Item 'autoledger-r10-4\work\pro\*.py*' 'autoledger-r10-4\source-handoff\pro' -Force
+          Copy-Item 'autoledger-r10-4\*.py','autoledger-r10-4\*.iss' 'autoledger-r10-4\source-handoff\revision' -Force
+          Copy-Item 'autoledger-r10-4\ci' 'autoledger-r10-4\source-handoff\revision\ci' -Recurse -Force
+
+      - name: Upload R10.4 unsigned installers
+        uses: actions/upload-artifact@v4
+        with:
+          name: AUTOLEDGER-v2.2.5-R10.4-UNSIGNED-TEST-INSTALLERS
+          path: autoledger-r10-4/output-unsigned/*
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload R10.4 source handoff
+        uses: actions/upload-artifact@v4
+        with:
+          name: AUTOLEDGER-v2.2.5-R10.4-SOURCE-HANDOFF
+          path: autoledger-r10-4/source-handoff/**
+          if-no-files-found: error
+          retention-days: 30
