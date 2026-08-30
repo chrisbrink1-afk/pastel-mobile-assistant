@@ -1,0 +1,360 @@
+name: AUTOLEDGER R10.3 Inline Highlight Walkthrough Windows Build
+
+on:
+  push:
+    branches:
+      - autoledger-r10-3-inline-highlight-walkthrough-final
+    paths:
+      - '.github/workflows/autoledger-r10-3-inline-highlight-walkthrough.yml'
+      - 'autoledger-r10-3/**'
+      - 'autoledger-r10-2/**'
+      - 'autoledger-r10-1/**'
+      - 'autoledger-r10/**'
+      - 'autoledger-r9/**'
+      - 'autoledger-r8/**'
+      - 'activation-service/**'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Validate activation service and reconstruct original v2.2 source
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Push-Location 'activation-service'
+          node test.mjs
+          if ($LASTEXITCODE -ne 0) { throw 'Activation-service tests failed' }
+          Pop-Location
+          python desktop/tutorial_ci_diagnostic.py
+          if ($LASTEXITCODE -ne 0) { throw 'Original v2.2 reconstruction/regression suite failed' }
+          if (!(Test-Path 'desktop\diag_v22_clean.pyw')) { throw 'Reconstructed source was not produced' }
+          Push-Location 'autoledger-r8'
+          python test_licensing_vectors.py
+          if ($LASTEXITCODE -ne 0) { throw 'Permanent R6 entitlement compatibility test failed' }
+          Pop-Location
+
+      - name: Prepare R10.3 Free and Pro source trees and installers
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          python -m pip install --quiet pillow
+          python autoledger-r8/generate_assets.py
+          if ($LASTEXITCODE -ne 0) { throw 'Asset generation failed' }
+
+          Remove-Item 'autoledger-r10-3\work' -Recurse -Force -ErrorAction SilentlyContinue
+          Remove-Item 'autoledger-r10-3\output' -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force 'autoledger-r10-3\work\free\assets' | Out-Null
+          New-Item -ItemType Directory -Force 'autoledger-r10-3\work\pro\assets' | Out-Null
+          New-Item -ItemType Directory -Force 'autoledger-r10-3\output' | Out-Null
+          New-Item -ItemType Directory -Force 'autoledger-r10-3\assets' | Out-Null
+
+          Copy-Item 'desktop\diag_v22_clean.pyw' 'autoledger-r10-3\work\free\autoledger_core.py' -Force
+          Copy-Item 'desktop\diag_v22_clean.pyw' 'autoledger-r10-3\work\pro\autoledger_core.py' -Force
+          python 'autoledger-r8\r8_core_transform.py' 'autoledger-r10-3\work\free\autoledger_core.py'
+          python 'autoledger-r8\r8_core_transform.py' 'autoledger-r10-3\work\pro\autoledger_core.py'
+
+          foreach ($edition in @('free','pro')) {
+            Copy-Item 'autoledger-r8\autoledger_common.py' "autoledger-r10-3\work\$edition\autoledger_common.py" -Force
+            Copy-Item 'autoledger-r9\help_topics.py' "autoledger-r10-3\work\$edition\help_topics.py" -Force
+            Copy-Item 'autoledger-r10\guided_tutorial.py' "autoledger-r10-3\work\$edition\guided_tutorial.py" -Force
+            Copy-Item 'autoledger-r10-1\tutorial_render_fix.py' "autoledger-r10-3\work\$edition\tutorial_render_fix.py" -Force
+            Copy-Item 'autoledger-r10-2\guided_walkthrough_r102.py' "autoledger-r10-3\work\$edition\guided_walkthrough_r102.py" -Force
+            Copy-Item 'autoledger-r10-3\guided_walkthrough_r103.py' "autoledger-r10-3\work\$edition\guided_walkthrough_r103.py" -Force
+            Copy-Item 'autoledger-r8\assets\*' "autoledger-r10-3\work\$edition\assets" -Force
+            python 'autoledger-r10\r10_common_transform.py' "autoledger-r10-3\work\$edition\autoledger_common.py"
+            python 'autoledger-r10-1\r10_1_common_transform.py' "autoledger-r10-3\work\$edition\autoledger_common.py"
+            python 'autoledger-r10-2\r10_2_common_transform.py' "autoledger-r10-3\work\$edition\autoledger_common.py"
+            python 'autoledger-r10-3\r10_3_common_transform.py' "autoledger-r10-3\work\$edition\autoledger_common.py"
+          }
+
+          Copy-Item 'autoledger-r8\free_runner.pyw' 'autoledger-r10-3\work\free\free_runner.pyw' -Force
+          Copy-Item 'autoledger-r8\pro_runner.pyw' 'autoledger-r10-3\work\pro\pro_runner.pyw' -Force
+          foreach ($f in @('license_crypto.py','activation_crypto.py','device_identity.py','pro_licensing.py')) {
+            Copy-Item "autoledger-r8\$f" "autoledger-r10-3\work\pro\$f" -Force
+          }
+          Copy-Item 'autoledger-r8\EULA.txt' 'autoledger-r10-3\EULA.txt' -Force
+          Copy-Item 'autoledger-r8\assets\*' 'autoledger-r10-3\assets' -Force
+
+          python 'autoledger-r10-3\installer_transform_r103.py' 'autoledger-r10-2\free_update.iss' 'autoledger-r10-3\free_update.iss'
+          python 'autoledger-r10-3\installer_transform_r103.py' 'autoledger-r10-2\free_full.iss' 'autoledger-r10-3\free_full.iss'
+          python 'autoledger-r10-3\installer_transform_r103.py' 'autoledger-r10-2\pro_update.iss' 'autoledger-r10-3\pro_update.iss'
+          python 'autoledger-r10-3\installer_transform_r103.py' 'autoledger-r10-2\pro_full.iss' 'autoledger-r10-3\pro_full.iss'
+
+          Get-ChildItem 'autoledger-r10-3\work\free' -File | Where-Object { $_.Extension -in @('.py','.pyw') } | ForEach-Object { python -m py_compile $_.FullName; if ($LASTEXITCODE -ne 0) { throw "Compile failed: $($_.FullName)" } }
+          Get-ChildItem 'autoledger-r10-3\work\pro' -File | Where-Object { $_.Extension -in @('.py','.pyw') } | ForEach-Object { python -m py_compile $_.FullName; if ($LASTEXITCODE -ne 0) { throw "Compile failed: $($_.FullName)" } }
+
+      - name: Prove R10.3 tutorial is inline, highlighted and action-gated
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $env:APPDATA = Join-Path $env:RUNNER_TEMP 'r103-inline-appdata'
+          Remove-Item $env:APPDATA -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force $env:APPDATA | Out-Null
+          Push-Location 'autoledger-r10-3\work\free'
+          @'
+          import time
+          import autoledger_common as common
+          common.configure('FREE')
+          import autoledger_core as core
+          app = core.App()
+          try:
+              app.geometry('1150x780+20+20')
+              app.update()
+              assert common.UPDATE_REVISION == 'R10.3'
+
+              snap = app._r103_walkthrough_smoke('update')
+              print('UPDATE inline walkthrough:', snap)
+              assert snap['title'] == 'NEW IN THIS UPDATE', snap
+              assert snap['inline'] is True and snap['separate_window'] is False, snap
+              assert snap['bubble_mapped'], snap
+              assert snap['next']['text'] == 'Next' and snap['next']['state'] != 'disabled', snap
+              assert snap['skip']['text'] == 'Skip Tutorial', snap
+              assert getattr(app, '_r10_guided_window', None) is None
+
+              app._r10_close_guided()
+              assert app.winfo_exists(), 'Closing the tutorial must not close AUTOLEDGER'
+
+              app.start_guided_tutorial('clean')
+              app.update(); time.sleep(0.15); app.update()
+              clean = app._r103_walkthrough_snapshot()
+              assert clean['step_id'] == 'welcome', clean
+              assert clean['title'] != 'NEW IN THIS UPDATE', clean
+
+              app._r103_show_step_by_id('cashbook_gl')
+              deadline = time.time() + 2.0
+              field = {}
+              while time.time() < deadline:
+                  app.update(); time.sleep(0.03)
+                  field = app._r103_walkthrough_snapshot()
+                  if field.get('target_interactive') and field.get('highlight_count') == 4:
+                      break
+              print('FIELD highlight:', field)
+              assert field['target_interactive'], field
+              assert 'label' not in field['target_class'].lower(), field
+              assert field['highlight_count'] == 4, field
+              assert field['bubble_mapped'], field
+              assert field['separate_window'] is False, field
+
+              ids = app._r10_guided_steps
+              for step in ('profile','cashbook_gl','vat_tax_type','vat_rate','fiscal_month','project_code','save_settings','load_csv','review_transaction','rule_open','rule_name','rule_match','rule_method','rule_gl','rule_vat','rule_priority','rule_amount_optional','rule_save','select_export','validate','export','complete'):
+                  assert step in ids, (step, ids)
+          finally:
+              try: app._r10_close_guided()
+              except Exception: pass
+              app.destroy()
+          '@ | Set-Content -Encoding UTF8 r103_inline_test.py
+          python r103_inline_test.py
+          if ($LASTEXITCODE -ne 0) { throw 'R10.3 inline walkthrough acceptance test failed' }
+          Pop-Location
+
+      - name: Audit complete beginner Help coverage
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Remove-Item 'autoledger-r10-3\audit-output' -Recurse -Force -ErrorAction SilentlyContinue
+          python 'autoledger-r9\help_inventory.py' 'autoledger-r10-3\work\free\autoledger_core.py' 'autoledger-r10-3\audit-output'
+          Push-Location 'autoledger-r9'
+          python help_coverage_test.py '..\autoledger-r10-3\audit-output\ui_feature_inventory.json'
+          if ($LASTEXITCODE -ne 0) { throw 'Complete-help coverage test failed' }
+          Pop-Location
+
+      - name: Build and smoke-test self-contained R10.3 Windows applications
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          python -m pip install --upgrade pyinstaller
+          Push-Location 'autoledger-r10-3\work\free'
+          python -m PyInstaller --noconfirm --clean --onedir --windowed --icon 'assets\AUTOLEDGER_ICON.ico' --add-data 'assets;assets' --name 'AUTOLEDGER Free v2.2.5 R10.3 TEST' free_runner.pyw
+          if ($LASTEXITCODE -ne 0) { throw 'Free R10.3 build failed' }
+          Pop-Location
+          Push-Location 'autoledger-r10-3\work\pro'
+          python -m PyInstaller --noconfirm --clean --onedir --windowed --icon 'assets\AUTOLEDGER_ICON.ico' --add-data 'assets;assets' --name 'AUTOLEDGER Pro v2.2.5 R10.3 TEST' pro_runner.pyw
+          if ($LASTEXITCODE -ne 0) { throw 'Pro R10.3 build failed' }
+          Pop-Location
+
+          $env:APPDATA = Join-Path $env:RUNNER_TEMP 'r103-bundled-smoke'
+          Remove-Item $env:APPDATA -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force $env:APPDATA | Out-Null
+          $free = Resolve-Path 'autoledger-r10-3\work\free\dist\AUTOLEDGER Free v2.2.5 R10.3 TEST\AUTOLEDGER Free v2.2.5 R10.3 TEST.exe'
+          $pro = Resolve-Path 'autoledger-r10-3\work\pro\dist\AUTOLEDGER Pro v2.2.5 R10.3 TEST\AUTOLEDGER Pro v2.2.5 R10.3 TEST.exe'
+          $p = Start-Process -FilePath $free -ArgumentList '--smoke-test' -PassThru -Wait
+          if ($p.ExitCode -ne 0) { throw "Free R10.3 smoke failed: $($p.ExitCode)" }
+          $p = Start-Process -FilePath $pro -ArgumentList '--smoke-test' -PassThru -Wait
+          if ($p.ExitCode -ne 0) { throw "Pro R10.3 smoke failed: $($p.ExitCode)" }
+
+      - name: Build Full Standalone and Update installers
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $iscc = 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe'
+          if (!(Test-Path $iscc)) { choco install innosetup -y --no-progress }
+          if (!(Test-Path $iscc)) { throw 'Inno Setup 6 not found' }
+          Remove-Item 'autoledger-r10-3\package' -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force 'autoledger-r10-3\package\free' | Out-Null
+          New-Item -ItemType Directory -Force 'autoledger-r10-3\package\pro' | Out-Null
+          Copy-Item 'autoledger-r10-3\work\free\dist\AUTOLEDGER Free v2.2.5 R10.3 TEST\*' 'autoledger-r10-3\package\free' -Recurse -Force
+          Copy-Item 'autoledger-r10-3\work\pro\dist\AUTOLEDGER Pro v2.2.5 R10.3 TEST\*' 'autoledger-r10-3\package\pro' -Recurse -Force
+          Push-Location 'autoledger-r10-3'
+          foreach ($iss in @('free_update.iss','free_full.iss','pro_update.iss','pro_full.iss')) {
+            & $iscc $iss
+            if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed: $iss" }
+          }
+          Pop-Location
+
+      - name: Verify Update installers support every previous revision and refuse clean PCs
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          foreach ($script in @('autoledger-r10-3\free_update.iss','autoledger-r10-3\pro_update.iss')) {
+            $txt = Get-Content $script -Raw
+            foreach ($rev in @('R6','R8','R9','R10','R10.1','R10.2')) {
+              if ($txt -notmatch [regex]::Escape($rev)) { throw "$script does not recognise older $rev installations" }
+            }
+          }
+          Remove-Item (Join-Path $env:LOCALAPPDATA 'Programs\AUTOLEDGER Free') -Recurse -Force -ErrorAction SilentlyContinue
+          Remove-Item (Join-Path $env:APPDATA 'AUTOLEDGER_V225_TEST_Free') -Recurse -Force -ErrorAction SilentlyContinue
+          $update = Resolve-Path 'autoledger-r10-3\output\AUTOLEDGER_Free_v2.2.5_R10_3_UPDATE_from_OLDER_TEST_Setup.exe'
+          $p = Start-Process -FilePath $update -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART') -PassThru -Wait
+          if ($p.ExitCode -eq 0) { throw 'R10.3 Update unexpectedly installed on a clean PC' }
+
+      - name: Verify Full Standalone clean installation and clean tutorial context
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $freeDir = Join-Path $env:LOCALAPPDATA 'Programs\AUTOLEDGER Free'
+          $proDir = Join-Path $env:LOCALAPPDATA 'Programs\AUTOLEDGER Pro'
+          $freeData = Join-Path $env:APPDATA 'AUTOLEDGER_V225_TEST_Free'
+          $proData = Join-Path $env:APPDATA 'AUTOLEDGER_V225_TEST_Pro'
+          foreach ($p in @($freeDir,$proDir,$freeData,$proData)) { Remove-Item $p -Recurse -Force -ErrorAction SilentlyContinue }
+          $ff = Resolve-Path 'autoledger-r10-3\output\AUTOLEDGER_Free_v2.2.5_R10_3_FULL_STANDALONE_TEST_Setup.exe'
+          $pf = Resolve-Path 'autoledger-r10-3\output\AUTOLEDGER_Pro_v2.2.5_R10_3_FULL_STANDALONE_TEST_Setup.exe'
+          $p = Start-Process -FilePath $ff -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART') -PassThru -Wait
+          if ($p.ExitCode -ne 0) { throw 'Free R10.3 Full install failed' }
+          $p = Start-Process -FilePath $pf -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART') -PassThru -Wait
+          if ($p.ExitCode -ne 0) { throw 'Pro R10.3 Full install failed' }
+          $fc = Get-Content (Join-Path $freeData 'install_context_r10.json') -Raw | ConvertFrom-Json
+          $pc = Get-Content (Join-Path $proData 'install_context_r10.json') -Raw | ConvertFrom-Json
+          if ($fc.revision -ne 'R10.3' -or $fc.install_kind -ne 'clean') { throw 'Free Full wrote wrong clean tutorial context' }
+          if ($pc.revision -ne 'R10.3' -or $pc.install_kind -ne 'clean') { throw 'Pro Full wrote wrong clean tutorial context' }
+          if (!(Test-Path (Join-Path $freeDir 'AUTOLEDGER Free v2.2.5 R10.3 TEST.exe'))) { throw 'Free standalone executable missing' }
+          if (!(Test-Path (Join-Path $proDir 'AUTOLEDGER Pro v2.2.5 R10.3 TEST.exe'))) { throw 'Pro standalone executable missing' }
+
+      - name: Verify R10.2 to R10.3 Update preserves data and permanent Pro entitlement
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $freeDir = Join-Path $env:LOCALAPPDATA 'Programs\AUTOLEDGER Free'
+          $proDir = Join-Path $env:LOCALAPPDATA 'Programs\AUTOLEDGER Pro'
+          $freeData = Join-Path $env:APPDATA 'AUTOLEDGER_V225_TEST_Free'
+          $proData = Join-Path $env:APPDATA 'AUTOLEDGER_V225_TEST_Pro'
+          foreach ($p in @($freeDir,$proDir,$freeData,$proData)) { Remove-Item $p -Recurse -Force -ErrorAction SilentlyContinue; New-Item -ItemType Directory -Force $p | Out-Null }
+          New-Item -ItemType File -Force (Join-Path $freeDir 'AUTOLEDGER Free v2.2.5 R10.2 TEST.exe') | Out-Null
+          New-Item -ItemType File -Force (Join-Path $proDir 'AUTOLEDGER Pro v2.2.5 R10.2 TEST.exe') | Out-Null
+          '{"version":1,"months":{"2026-08":{"used":37,"statements":{"seed":{"entries":37}}}}}' | Set-Content -Encoding UTF8 (Join-Path $freeData 'free_usage_r6.json')
+          '{"version":1,"last_prompted_revision":"R10.2","last_outcome":"completed","last_mode":"update"}' | Set-Content -Encoding UTF8 (Join-Path $freeData 'guided_tutorial_state.json')
+          '{"version":1,"last_prompted_revision":"R10.2","last_outcome":"completed","last_mode":"update"}' | Set-Content -Encoding UTF8 (Join-Path $proData 'guided_tutorial_state.json')
+
+          $sample = (Get-Content 'autoledger-r8\testdata\R6_SAMPLE_ENTITLEMENT_KEY.txt' -Raw).Trim()
+          Push-Location 'autoledger-r10-3\work\pro'
+          python -c "import json,sys; from license_crypto import decode_and_verify_key; k=sys.argv[1]; p=decode_and_verify_key(k); open(sys.argv[2],'w',encoding='utf-8').write(json.dumps({'version':1,'key':k,'payload':p},indent=2))" $sample (Join-Path $proData 'pro_licence_r6.json')
+          if ($LASTEXITCODE -ne 0) { throw 'Could not seed permanent Pro entitlement' }
+          Pop-Location
+
+          $freeHashBefore = (Get-FileHash (Join-Path $freeData 'free_usage_r6.json') -Algorithm SHA256).Hash
+          $proHashBefore = (Get-FileHash (Join-Path $proData 'pro_licence_r6.json') -Algorithm SHA256).Hash
+          $fu = Resolve-Path 'autoledger-r10-3\output\AUTOLEDGER_Free_v2.2.5_R10_3_UPDATE_from_OLDER_TEST_Setup.exe'
+          $pu = Resolve-Path 'autoledger-r10-3\output\AUTOLEDGER_Pro_v2.2.5_R10_3_UPDATE_from_OLDER_TEST_Setup.exe'
+          $p = Start-Process -FilePath $fu -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART') -PassThru -Wait
+          if ($p.ExitCode -ne 0) { throw "Free R10.3 update failed: $($p.ExitCode)" }
+          $p = Start-Process -FilePath $pu -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART') -PassThru -Wait
+          if ($p.ExitCode -ne 0) { throw "Pro R10.3 update failed: $($p.ExitCode)" }
+
+          $fc = Get-Content (Join-Path $freeData 'install_context_r10.json') -Raw | ConvertFrom-Json
+          $pc = Get-Content (Join-Path $proData 'install_context_r10.json') -Raw | ConvertFrom-Json
+          if ($fc.revision -ne 'R10.3' -or $fc.install_kind -ne 'update') { throw 'Free Update wrote wrong tutorial context' }
+          if ($pc.revision -ne 'R10.3' -or $pc.install_kind -ne 'update') { throw 'Pro Update wrote wrong tutorial context' }
+          if ((Get-FileHash (Join-Path $freeData 'free_usage_r6.json') -Algorithm SHA256).Hash -ne $freeHashBefore) { throw 'Free usage data changed during update' }
+          if ((Get-FileHash (Join-Path $proData 'pro_licence_r6.json') -Algorithm SHA256).Hash -ne $proHashBefore) { throw 'Permanent Pro entitlement changed during update' }
+          if (Test-Path (Join-Path $freeDir 'AUTOLEDGER Free v2.2.5 R10.2 TEST.exe')) { throw 'Old Free R10.2 executable was not retired' }
+          if (Test-Path (Join-Path $proDir 'AUTOLEDGER Pro v2.2.5 R10.2 TEST.exe')) { throw 'Old Pro R10.2 executable was not retired' }
+
+          $freeExe = Join-Path $freeDir 'AUTOLEDGER Free v2.2.5 R10.3 TEST.exe'
+          $proExe = Join-Path $proDir 'AUTOLEDGER Pro v2.2.5 R10.3 TEST.exe'
+          $p = Start-Process -FilePath $freeExe -ArgumentList '--smoke-test' -PassThru -Wait
+          if ($p.ExitCode -ne 0) { throw 'Installed Free R10.3 smoke failed' }
+          $p = Start-Process -FilePath $proExe -ArgumentList '--existing-licence-smoke-test' -PassThru -Wait
+          if ($p.ExitCode -ne 0) { throw 'Existing permanent Pro entitlement was not accepted after R10.3 update' }
+
+      - name: Build complete R10.3 source packages, hashes and release notes
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Remove-Item 'autoledger-r10-3\source-release' -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force 'autoledger-r10-3\source-release\free\application\assets' | Out-Null
+          New-Item -ItemType Directory -Force 'autoledger-r10-3\source-release\free\build' | Out-Null
+          New-Item -ItemType Directory -Force 'autoledger-r10-3\source-release\pro\application\assets' | Out-Null
+          New-Item -ItemType Directory -Force 'autoledger-r10-3\source-release\pro\build' | Out-Null
+
+          foreach ($edition in @('free','pro')) {
+            Get-ChildItem "autoledger-r10-3\work\$edition" -File | Where-Object { $_.Extension -in @('.py','.pyw') } | Copy-Item -Destination "autoledger-r10-3\source-release\$edition\application" -Force
+            Copy-Item "autoledger-r10-3\work\$edition\assets\*" "autoledger-r10-3\source-release\$edition\application\assets" -Force
+            Copy-Item 'autoledger-r10-3\EULA.txt' "autoledger-r10-3\source-release\$edition\EULA.txt" -Force
+            Copy-Item "autoledger-r10-3\${edition}_update.iss" "autoledger-r10-3\source-release\$edition\build" -Force
+            Copy-Item "autoledger-r10-3\${edition}_full.iss" "autoledger-r10-3\source-release\$edition\build" -Force
+            foreach ($f in @('autoledger-r8\r8_core_transform.py','autoledger-r10\r10_common_transform.py','autoledger-r10-1\r10_1_common_transform.py','autoledger-r10-2\r10_2_common_transform.py','autoledger-r10-3\r10_3_common_transform.py','autoledger-r10-3\installer_transform_r103.py')) {
+              Copy-Item $f "autoledger-r10-3\source-release\$edition\build" -Force
+            }
+          }
+          Copy-Item 'activation-service' 'autoledger-r10-3\source-release\pro\activation-service' -Recurse -Force
+
+          'AUTOLEDGER Free v2.2.5 R10.3 COMPLETE SOURCE - exact effective source used for the validated inline highlighted walkthrough build.' | Set-Content -Encoding UTF8 'autoledger-r10-3\source-release\free\README_SOURCE.txt'
+          'AUTOLEDGER Pro v2.2.5 R10.3 COMPLETE SOURCE - exact effective source used for the validated inline highlighted walkthrough build. Permanent private ALP225R6 signing material remains excluded from customer source.' | Set-Content -Encoding UTF8 'autoledger-r10-3\source-release\pro\README_SOURCE.txt'
+          Compress-Archive -Path 'autoledger-r10-3\source-release\free\*' -DestinationPath 'autoledger-r10-3\output\AUTOLEDGER_Free_v2.2.5_R10_3_COMPLETE_SOURCE.zip' -Force
+          Compress-Archive -Path 'autoledger-r10-3\source-release\pro\*' -DestinationPath 'autoledger-r10-3\output\AUTOLEDGER_Pro_v2.2.5_R10_3_COMPLETE_SOURCE.zip' -Force
+
+          @'
+          AUTOLEDGER v2.2.5 R10.3 TEST — INLINE HIGHLIGHT GUIDED WALKTHROUGH
+
+          R10.3 removes the separate tutorial pop-up and the moving DO THIS NOW pointer.
+          The Guided Walkthrough now runs in-place over the normal AUTOLEDGER interface.
+          Action steps statically outline the real field/button/work area and place a nearby instruction bubble with the hint or instruction.
+          Next remains action-gated until AUTOLEDGER detects completion of the required task.
+          The existing field-by-field Saved Rule curriculum is retained.
+
+          Two installer types are supplied for both Free and Pro:
+          - FULL_STANDALONE_TEST_Setup.exe: for a new/clean PC; also detects an existing installation safely.
+          - UPDATE_from_OLDER_TEST_Setup.exe: for supported earlier R6/R8/R9/R10/R10.1/R10.2 installations; refuses a clean PC.
+
+          Update installation preserves AppData, Free usage history and permanent ALP225R6 Pro entitlement.
+          Clean Full installation starts with the beginner walkthrough. Update installation starts with NEW IN THIS UPDATE.
+          These TEST builds remain unsigned pending the AUTOLEDGER SYSTEMS PTY LTD code-signing certificate.
+          '@ | Set-Content -Encoding UTF8 'autoledger-r10-3\output\README_R10_3_TEST.txt'
+
+          Get-ChildItem 'autoledger-r10-3\output' -File | Where-Object { $_.Extension -in @('.exe','.zip') } | ForEach-Object {
+            $h = Get-FileHash $_.FullName -Algorithm SHA256
+            "$($h.Hash.ToLower())  $($_.Name)"
+          } | Set-Content -Encoding ASCII 'autoledger-r10-3\output\AUTOLEDGER_v2.2.5_R10_3_SHA256.txt'
+
+      - name: Upload validated R10.3 installers and complete source
+        uses: actions/upload-artifact@v4
+        with:
+          name: AUTOLEDGER-v2.2.5-R10.3-INLINE-HIGHLIGHT-WALKTHROUGH-WINDOWS-AND-SOURCE
+          path: |
+            autoledger-r10-3/output/*.exe
+            autoledger-r10-3/output/*.zip
+            autoledger-r10-3/output/*.txt
+            autoledger-r10-3/audit-output/ui_feature_inventory.json
+            autoledger-r10-3/audit-output/R9_UI_FEATURE_AUDIT.md
+          if-no-files-found: error
+          retention-days: 90
