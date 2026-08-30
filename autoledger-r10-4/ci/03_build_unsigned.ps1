@@ -36,6 +36,7 @@ foreach ($iss in @('free_update.iss','free_full.iss','pro_update.iss','pro_full.
 Pop-Location
 
 Copy-Item 'autoledger-r10-4\output\*.exe' 'autoledger-r10-4\output-unsigned' -Force
+Copy-Item 'autoledger-r10-4\README_R10_4.txt' 'autoledger-r10-4\output-unsigned\README_AUTOLEDGER_R10_4.txt' -Force
 @'
 AUTOLEDGER v2.2.5 R10.4 UNSIGNED TEST BUILD
 
@@ -46,7 +47,9 @@ R10.4 tutorial changes:
 - a gentle animated arrow points toward the required control without using a separate tutorial popup;
 - Saved Rule Priority guidance remains: 100 normal/default, 200/300 only for intentional overlapping-rule precedence.
 
-Installer rule:
+Installer changes:
+- every installer includes a final-page checkbox to run AUTOLEDGER after installation;
+- the R10.4 README is installed into the AUTOLEDGER program folder and included in this download package;
 - use UPDATE when AUTOLEDGER is already installed;
 - use FULL / Standalone for a clean PC or clean installation;
 - R10.4 Update explicitly recognises R10.3 plus supported older R6/R8/R9/R10/R10.1/R10.2 builds;
@@ -59,6 +62,8 @@ Contains:
 - Free Update installer
 - Pro Full / Standalone installer
 - Pro Update installer
+- R10.4 README
+- SHA-256 manifest
 '@ | Set-Content -Encoding UTF8 'autoledger-r10-4\output-unsigned\README_R10_4_UNSIGNED_TEST.txt'
 
 Get-ChildItem 'autoledger-r10-4\output-unsigned' -Filter '*.exe' | ForEach-Object {
