@@ -1,0 +1,118 @@
+name: AUTOLEDGER R10.4.1 First Saved Rule Gate Fix
+
+on:
+  push:
+    branches:
+      - autoledger-r10-4-1-first-rule-gate-fix
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Prepare R10.4 source baseline
+        shell: powershell
+        run: .\autoledger-r10-4\ci\01_prepare.ps1
+
+      - name: Apply R10.4.1 database-backed rule gate correction
+        shell: powershell
+        run: |
+          python .\autoledger-r10-4\r1041_post_prepare.py
+          if ($LASTEXITCODE -ne 0) { throw 'R10.4.1 post-prepare patch failed' }
+          python -m py_compile .\autoledger-r10-4\r1041_rule_gate_fix.py .\autoledger-r10-4\r1041_post_prepare.py
+          if ($LASTEXITCODE -ne 0) { throw 'R10.4.1 correction source did not compile' }
+
+      - name: Reproduce and verify first Saved Rule gate bug
+        shell: powershell
+        run: |
+          Push-Location .\autoledger-r10-4
+          python .\r1041_rule_gate_regression.py
+          if ($LASTEXITCODE -ne 0) { throw 'R10.4.1 first-rule regression test failed' }
+          Pop-Location
+
+      - name: Validate complete R10.4 walkthrough with R10.4.1 correction
+        shell: powershell
+        run: |
+          $src = Get-Content '.\autoledger-r10-4\ci\02_acceptance.ps1' -Raw
+          $src = $src.Replace('R10.4','R10.4.1')
+          $src | Set-Content -Encoding UTF8 '.\autoledger-r10-4\ci\02_acceptance_r1041.generated.ps1'
+          .\autoledger-r10-4\ci\02_acceptance_r1041.generated.ps1
+
+      - name: Prepare R10.4.1 installer names and R10.4 upgrade recognition
+        shell: powershell
+        run: |
+          python .\autoledger-r10-4\r1041_patch_build_files.py
+          if ($LASTEXITCODE -ne 0) { throw 'R10.4.1 installer patch preparation failed' }
+          foreach ($script in @('.\autoledger-r10-4\free_update.iss','.\autoledger-r10-4\pro_update.iss')) {
+            $txt = Get-Content $script -Raw
+            if ($txt -notmatch 'R10\.4 TEST\.exe') { throw "$script no longer recognises R10.4 as an update predecessor" }
+            if ($txt -notmatch 'R10\.4\.1 TEST\.exe') { throw "$script does not target R10.4.1" }
+          }
+
+      - name: Build four unsigned R10.4.1 installers
+        shell: powershell
+        run: .\autoledger-r10-4\ci\03_build_unsigned_r1041.generated.ps1
+
+      - name: Validate supported older updates and clean installs
+        shell: powershell
+        run: |
+          $src = Get-Content '.\autoledger-r10-4\ci\04_update_install_tests.ps1' -Raw
+          $src = $src.Replace('R10.4','R10.4.1').Replace('R10_4','R10_4_1')
+          $src | Set-Content -Encoding UTF8 '.\autoledger-r10-4\ci\04_update_install_tests_r1041.generated.ps1'
+          .\autoledger-r10-4\ci\04_update_install_tests_r1041.generated.ps1
+
+      - name: Validate exact R10.4 to R10.4.1 update preservation
+        shell: powershell
+        run: .\autoledger-r10-4\ci\05_r104_to_r1041_update_test.ps1
+
+      - name: Smoke-test finished installed Free and Pro executables
+        shell: powershell
+        run: |
+          $env:LOCALAPPDATA = Join-Path $env:RUNNER_TEMP 'r1041-from-r104-localappdata'
+          $env:APPDATA = Join-Path $env:RUNNER_TEMP 'r1041-from-r104-appdata'
+          $executables = @(
+            (Join-Path $env:LOCALAPPDATA 'Programs\AUTOLEDGER Free\AUTOLEDGER Free v2.2.5 R10.4.1 TEST.exe'),
+            (Join-Path $env:LOCALAPPDATA 'Programs\AUTOLEDGER Pro\AUTOLEDGER Pro v2.2.5 R10.4.1 TEST.exe')
+          )
+          foreach ($exe in $executables) {
+            if (!(Test-Path $exe)) { throw "Installed executable missing: $exe" }
+            $p = Start-Process -FilePath $exe -PassThru
+            Start-Sleep -Seconds 5
+            if ($p.HasExited) { throw "Packaged application exited during launch smoke test: $exe (exit $($p.ExitCode))" }
+            Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
+          }
+          Write-Host 'Finished R10.4.1 Free/Pro executable launch smoke tests passed'
+
+      - name: Preserve effective R10.4.1 source
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Force 'autoledger-r10-4\source-handoff-r1041\free','autoledger-r10-4\source-handoff-r1041\pro','autoledger-r10-4\source-handoff-r1041\revision' | Out-Null
+          Copy-Item 'autoledger-r10-4\work\free\*.py*' 'autoledger-r10-4\source-handoff-r1041\free' -Force
+          Copy-Item 'autoledger-r10-4\work\pro\*.py*' 'autoledger-r10-4\source-handoff-r1041\pro' -Force
+          Copy-Item 'autoledger-r10-4\*.py','autoledger-r10-4\*.iss','autoledger-r10-4\README_R10_4_1.txt' 'autoledger-r10-4\source-handoff-r1041\revision' -Force
+          Copy-Item 'autoledger-r10-4\ci' 'autoledger-r10-4\source-handoff-r1041\revision\ci' -Recurse -Force
+
+      - name: Upload R10.4.1 unsigned installers
+        uses: actions/upload-artifact@v4
+        with:
+          name: AUTOLEDGER-v2.2.5-R10.4.1-UNSIGNED-TEST-INSTALLERS
+          path: autoledger-r10-4/output-unsigned/*
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload R10.4.1 source handoff
+        uses: actions/upload-artifact@v4
+        with:
+          name: AUTOLEDGER-v2.2.5-R10.4.1-SOURCE-HANDOFF
+          path: autoledger-r10-4/source-handoff-r1041/**
+          if-no-files-found: error
+          retention-days: 30
