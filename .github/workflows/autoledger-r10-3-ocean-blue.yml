@@ -1,0 +1,279 @@
+name: AUTOLEDGER R10.3 Ocean Blue Windows Build
+
+on:
+  push:
+    branches:
+      - autoledger-r10-3-ocean-blue
+    paths:
+      - '.github/workflows/autoledger-r10-3-ocean-blue.yml'
+      - 'autoledger-r10-3-ocean-blue/**'
+      - 'autoledger-r10-2/**'
+      - 'autoledger-r10-1/**'
+      - 'autoledger-r10/**'
+      - 'autoledger-r9/**'
+      - 'autoledger-r8/**'
+      - 'activation-service/**'
+      - 'desktop/**'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Validate activation service logic
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Push-Location 'activation-service'
+          node test.mjs
+          if ($LASTEXITCODE -ne 0) { throw 'Activation-service tests failed' }
+          Pop-Location
+
+      - name: Reconstruct validated R10.2 baseline
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          python -m pip install --quiet pillow
+          python desktop/tutorial_ci_diagnostic.py
+          if ($LASTEXITCODE -ne 0) { throw 'Original v2.2 reconstruction/regression suite failed' }
+          if (!(Test-Path 'desktop\diag_v22_clean.pyw')) { throw 'Reconstructed source was not produced' }
+
+          $root = 'autoledger-r10-3-ocean-blue'
+          Remove-Item "$root\work" -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force "$root\work\free\assets" | Out-Null
+          New-Item -ItemType Directory -Force "$root\work\pro\assets" | Out-Null
+
+          Copy-Item 'desktop\diag_v22_clean.pyw' "$root\work\free\autoledger_core.py" -Force
+          Copy-Item 'desktop\diag_v22_clean.pyw' "$root\work\pro\autoledger_core.py" -Force
+          python 'autoledger-r8\r8_core_transform.py' "$root\work\free\autoledger_core.py"
+          python 'autoledger-r8\r8_core_transform.py' "$root\work\pro\autoledger_core.py"
+
+          Copy-Item 'autoledger-r8\autoledger_common.py' "$root\work\free\autoledger_common.py" -Force
+          Copy-Item 'autoledger-r8\autoledger_common.py' "$root\work\pro\autoledger_common.py" -Force
+          python 'autoledger-r10\r10_common_transform.py' "$root\work\free\autoledger_common.py"
+          python 'autoledger-r10\r10_common_transform.py' "$root\work\pro\autoledger_common.py"
+
+          Copy-Item 'autoledger-r9\help_topics.py' "$root\work\free\help_topics.py" -Force
+          Copy-Item 'autoledger-r9\help_topics.py' "$root\work\pro\help_topics.py" -Force
+          Copy-Item 'autoledger-r10\guided_tutorial.py' "$root\work\free\guided_tutorial.py" -Force
+          Copy-Item 'autoledger-r10\guided_tutorial.py' "$root\work\pro\guided_tutorial.py" -Force
+          Copy-Item 'autoledger-r10-1\tutorial_render_fix.py' "$root\work\free\tutorial_render_fix.py" -Force
+          Copy-Item 'autoledger-r10-1\tutorial_render_fix.py' "$root\work\pro\tutorial_render_fix.py" -Force
+          Copy-Item 'autoledger-r10-2\guided_walkthrough_r102.py' "$root\work\free\guided_walkthrough_r102.py" -Force
+          Copy-Item 'autoledger-r10-2\guided_walkthrough_r102.py' "$root\work\pro\guided_walkthrough_r102.py" -Force
+
+          Copy-Item 'autoledger-r8\free_runner.pyw' "$root\work\free\free_runner.pyw" -Force
+          Copy-Item 'autoledger-r8\pro_runner.pyw' "$root\work\pro\pro_runner.pyw" -Force
+          Copy-Item 'autoledger-r8\license_crypto.py' "$root\work\pro\license_crypto.py" -Force
+          Copy-Item 'autoledger-r8\activation_crypto.py' "$root\work\pro\activation_crypto.py" -Force
+          Copy-Item 'autoledger-r8\device_identity.py' "$root\work\pro\device_identity.py" -Force
+          Copy-Item 'autoledger-r8\pro_licensing.py' "$root\work\pro\pro_licensing.py" -Force
+
+          python 'autoledger-r10-1\r10_1_common_transform.py' "$root\work\free\autoledger_common.py"
+          python 'autoledger-r10-1\r10_1_common_transform.py' "$root\work\pro\autoledger_common.py"
+          python 'autoledger-r10-2\r10_2_common_transform.py' "$root\work\free\autoledger_common.py"
+          python 'autoledger-r10-2\r10_2_common_transform.py' "$root\work\pro\autoledger_common.py"
+
+      - name: Apply R10.3 Ocean Blue refinement
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $root = 'autoledger-r10-3-ocean-blue'
+          python "$root\r10_3_ocean_transform.py" "$root\work"
+          if ($LASTEXITCODE -ne 0) { throw 'R10.3 Ocean Blue transform failed' }
+          python "$root\generate_ocean_assets.py"
+          if ($LASTEXITCODE -ne 0) { throw 'R10.3 Ocean Blue asset generation failed' }
+          Copy-Item "$root\assets\*" "$root\work\free\assets" -Force
+          Copy-Item "$root\assets\*" "$root\work\pro\assets" -Force
+
+          Get-ChildItem "$root\work\free" -File | Where-Object { $_.Extension -in @('.py','.pyw') } | ForEach-Object { python -m py_compile $_.FullName; if ($LASTEXITCODE -ne 0) { throw "Compile failed: $($_.FullName)" } }
+          Get-ChildItem "$root\work\pro" -File | Where-Object { $_.Extension -in @('.py','.pyw') } | ForEach-Object { python -m py_compile $_.FullName; if ($LASTEXITCODE -ne 0) { throw "Compile failed: $($_.FullName)" } }
+
+      - name: Validate core and permanent R6 entitlement compatibility
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $root = 'autoledger-r10-3-ocean-blue'
+          Push-Location "$root\work\free"
+          python autoledger_core.py --self-test
+          if ($LASTEXITCODE -ne 0) { throw 'Free core self-test failed' }
+          Pop-Location
+          Push-Location "$root\work\pro"
+          python autoledger_core.py --self-test
+          if ($LASTEXITCODE -ne 0) { throw 'Pro core self-test failed' }
+          Pop-Location
+          Push-Location 'autoledger-r8'
+          python test_licensing_vectors.py
+          if ($LASTEXITCODE -ne 0) { throw 'Permanent R6 entitlement compatibility test failed' }
+          Pop-Location
+
+      - name: Smoke-test R10.3 source UI and walkthrough
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $root = 'autoledger-r10-3-ocean-blue'
+          $env:APPDATA = Join-Path $env:RUNNER_TEMP 'r103-source-smoke'
+          Remove-Item $env:APPDATA -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force $env:APPDATA | Out-Null
+          Push-Location "$root\work\free"
+          python free_runner.pyw --smoke-test
+          if ($LASTEXITCODE -ne 0) { throw 'Free R10.3 source smoke failed' }
+          Pop-Location
+          Push-Location "$root\work\pro"
+          python pro_runner.pyw --smoke-test
+          if ($LASTEXITCODE -ne 0) { throw 'Pro R10.3 source smoke failed' }
+          Pop-Location
+
+      - name: Verify R10.3 presentation and compatibility invariants
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $root = 'autoledger-r10-3-ocean-blue'
+          $common = Get-Content "$root\work\free\autoledger_common.py" -Raw
+          $core = Get-Content "$root\work\free\autoledger_core.py" -Raw
+          $walk = Get-Content "$root\work\free\guided_walkthrough_r102.py" -Raw
+          if ($common -notmatch 'UPDATE_REVISION = "R10\.3"') { throw 'R10.3 revision missing' }
+          if ($common -match 'R10\.3 TEST') { throw 'Customer-facing TEST wording remains in R10.3 common source' }
+          if ($core -match 'Clean feedback workspace|Clean feedback build') { throw 'Development feedback wording remains' }
+          foreach ($colour in @('#064A7A','#0875C9','#1EA4F2')) {
+            if (($common + $core + $walk) -notmatch [regex]::Escape($colour)) { throw "Ocean Blue colour missing: $colour" }
+          }
+          if ($common -notmatch 'AUTOLEDGER_V225_TEST_') { throw 'Legacy AppData namespace was accidentally changed' }
+          if ($common -notmatch 'free_usage_r6\.json') { throw 'Free usage continuity filename missing' }
+          $lic = Get-Content "$root\work\pro\license_crypto.py" -Raw
+          if ($lic -notmatch 'PREFIX = "ALP225R6"') { throw 'Permanent R6 entitlement prefix changed' }
+          if (!(Test-Path "$root\assets\AUTOLEDGER_ICON.ico")) { throw 'Ocean Blue Windows icon missing' }
+          if (!(Test-Path "$root\assets\AUTOLEDGER_LOGO_MODERN.png")) { throw 'Ocean Blue logo missing' }
+
+      - name: Build self-contained R10.3 Windows applications
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          python -m pip install --quiet --upgrade pyinstaller
+          $root = 'autoledger-r10-3-ocean-blue'
+          Push-Location "$root\work\free"
+          python -m PyInstaller --noconfirm --clean --onedir --windowed --icon 'assets\AUTOLEDGER_ICON.ico' --add-data 'assets;assets' --name 'AUTOLEDGER Free v2.2.5 R10.3' free_runner.pyw
+          if ($LASTEXITCODE -ne 0) { throw 'Free R10.3 build failed' }
+          Pop-Location
+          Push-Location "$root\work\pro"
+          python -m PyInstaller --noconfirm --clean --onedir --windowed --icon 'assets\AUTOLEDGER_ICON.ico' --add-data 'assets;assets' --name 'AUTOLEDGER Pro v2.2.5 R10.3' pro_runner.pyw
+          if ($LASTEXITCODE -ne 0) { throw 'Pro R10.3 build failed' }
+          Pop-Location
+
+      - name: Smoke-test bundled R10.3 applications
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $root = 'autoledger-r10-3-ocean-blue'
+          $env:APPDATA = Join-Path $env:RUNNER_TEMP 'r103-bundled-smoke'
+          Remove-Item $env:APPDATA -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force $env:APPDATA | Out-Null
+          $free = Resolve-Path "$root\work\free\dist\AUTOLEDGER Free v2.2.5 R10.3\AUTOLEDGER Free v2.2.5 R10.3.exe"
+          $pro = Resolve-Path "$root\work\pro\dist\AUTOLEDGER Pro v2.2.5 R10.3\AUTOLEDGER Pro v2.2.5 R10.3.exe"
+          $p = Start-Process -FilePath $free -ArgumentList '--smoke-test' -PassThru -Wait
+          if ($p.ExitCode -ne 0) { throw "Free bundled smoke failed: $($p.ExitCode)" }
+          $p = Start-Process -FilePath $pro -ArgumentList '--smoke-test' -PassThru -Wait
+          if ($p.ExitCode -ne 0) { throw "Pro bundled smoke failed: $($p.ExitCode)" }
+
+      - name: Build four R10.3 installers
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $root = 'autoledger-r10-3-ocean-blue'
+          $iscc = 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe'
+          if (!(Test-Path $iscc)) { choco install innosetup -y --no-progress }
+          if (!(Test-Path $iscc)) { throw 'Inno Setup 6 not found' }
+          Remove-Item "$root\package" -Recurse -Force -ErrorAction SilentlyContinue
+          Remove-Item "$root\output" -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force "$root\package\free" | Out-Null
+          New-Item -ItemType Directory -Force "$root\package\pro" | Out-Null
+          New-Item -ItemType Directory -Force "$root\output" | Out-Null
+          Copy-Item "$root\work\free\dist\AUTOLEDGER Free v2.2.5 R10.3\*" "$root\package\free" -Recurse -Force
+          Copy-Item "$root\work\pro\dist\AUTOLEDGER Pro v2.2.5 R10.3\*" "$root\package\pro" -Recurse -Force
+          Copy-Item "$root\build\*.iss" $root -Force
+          Push-Location $root
+          foreach ($iss in @('free_update.iss','free_full.iss','pro_update.iss','pro_full.iss')) {
+            & $iscc $iss
+            if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed: $iss" }
+          }
+          Pop-Location
+
+      - name: Validate installers on clean Windows runner
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $root = 'autoledger-r10-3-ocean-blue'
+          $expected = @(
+            'AUTOLEDGER_Free_v2.2.5_R10_3_FULL_STANDALONE_Setup.exe',
+            'AUTOLEDGER_Free_v2.2.5_R10_3_UPDATE_Setup.exe',
+            'AUTOLEDGER_Pro_v2.2.5_R10_3_FULL_STANDALONE_Setup.exe',
+            'AUTOLEDGER_Pro_v2.2.5_R10_3_UPDATE_Setup.exe'
+          )
+          foreach ($name in $expected) {
+            $p = Join-Path "$root\output" $name
+            if (!(Test-Path $p)) { throw "Missing installer: $name" }
+            if ((Get-Item $p).Length -lt 5000000) { throw "Installer unexpectedly small: $name" }
+          }
+
+          & "$root\output\AUTOLEDGER_Free_v2.2.5_R10_3_FULL_STANDALONE_Setup.exe" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP-
+          if ($LASTEXITCODE -ne 0) { throw 'Free FULL installer failed' }
+          & "$root\output\AUTOLEDGER_Pro_v2.2.5_R10_3_FULL_STANDALONE_Setup.exe" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP-
+          if ($LASTEXITCODE -ne 0) { throw 'Pro FULL installer failed' }
+          $freeInstalled = Join-Path $env:LOCALAPPDATA 'Programs\AUTOLEDGER Free\AUTOLEDGER Free v2.2.5 R10.3.exe'
+          $proInstalled = Join-Path $env:LOCALAPPDATA 'Programs\AUTOLEDGER Pro\AUTOLEDGER Pro v2.2.5 R10.3.exe'
+          if (!(Test-Path $freeInstalled)) { throw 'Installed Free EXE missing' }
+          if (!(Test-Path $proInstalled)) { throw 'Installed Pro EXE missing' }
+          $p = Start-Process $freeInstalled -ArgumentList '--smoke-test' -PassThru -Wait
+          if ($p.ExitCode -ne 0) { throw 'Installed Free smoke failed' }
+          $p = Start-Process $proInstalled -ArgumentList '--smoke-test' -PassThru -Wait
+          if ($p.ExitCode -ne 0) { throw 'Installed Pro smoke failed' }
+
+          & "$root\output\AUTOLEDGER_Free_v2.2.5_R10_3_UPDATE_Setup.exe" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP-
+          if ($LASTEXITCODE -ne 0) { throw 'Free UPDATE installer failed over existing install' }
+          & "$root\output\AUTOLEDGER_Pro_v2.2.5_R10_3_UPDATE_Setup.exe" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP-
+          if ($LASTEXITCODE -ne 0) { throw 'Pro UPDATE installer failed over existing install' }
+
+      - name: Package source and checksums
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $root = 'autoledger-r10-3-ocean-blue'
+          $out = "$root\output"
+          Remove-Item "$root\source-free" -Recurse -Force -ErrorAction SilentlyContinue
+          Remove-Item "$root\source-pro" -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force "$root\source-free\application\assets" | Out-Null
+          New-Item -ItemType Directory -Force "$root\source-free\build" | Out-Null
+          New-Item -ItemType Directory -Force "$root\source-pro\application\assets" | Out-Null
+          New-Item -ItemType Directory -Force "$root\source-pro\build" | Out-Null
+          foreach ($f in @('autoledger_common.py','autoledger_core.py','guided_tutorial.py','guided_walkthrough_r102.py','help_topics.py','tutorial_render_fix.py','free_runner.pyw')) { Copy-Item "$root\work\free\$f" "$root\source-free\application\$f" -Force }
+          foreach ($f in @('autoledger_common.py','autoledger_core.py','guided_tutorial.py','guided_walkthrough_r102.py','help_topics.py','tutorial_render_fix.py','pro_runner.pyw','activation_crypto.py','device_identity.py','license_crypto.py','pro_licensing.py')) { Copy-Item "$root\work\pro\$f" "$root\source-pro\application\$f" -Force }
+          Copy-Item "$root\assets\*" "$root\source-free\application\assets" -Force
+          Copy-Item "$root\assets\*" "$root\source-pro\application\assets" -Force
+          Copy-Item "$root\build\free_*.iss" "$root\source-free\build" -Force
+          Copy-Item "$root\build\pro_*.iss" "$root\source-pro\build" -Force
+          Copy-Item "$root\EULA.txt" "$root\source-free\EULA.txt" -Force
+          Copy-Item "$root\EULA.txt" "$root\source-pro\EULA.txt" -Force
+          Copy-Item "$root\README_R10_3.md" "$root\source-free\README_R10_3.md" -Force
+          Copy-Item "$root\README_R10_3.md" "$root\source-pro\README_R10_3.md" -Force
+          Compress-Archive -Path "$root\source-free\*" -DestinationPath "$out\AUTOLEDGER_Free_v2.2.5_R10_3_COMPLETE_SOURCE.zip" -Force
+          Compress-Archive -Path "$root\source-pro\*" -DestinationPath "$out\AUTOLEDGER_Pro_v2.2.5_R10_3_COMPLETE_SOURCE.zip" -Force
+          $lines = Get-ChildItem $out -File | Sort-Object Name | ForEach-Object { "{0}  {1}" -f (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower(), $_.Name }
+          $lines | Set-Content -Encoding ASCII "$out\AUTOLEDGER_v2.2.5_R10_3_SHA256.txt"
+          Copy-Item "$root\README_R10_3.md" "$out\README_R10_3.md" -Force
+
+      - name: Upload R10.3 Windows package
+        uses: actions/upload-artifact@v4
+        with:
+          name: AUTOLEDGER-v2.2.5-R10.3-OCEAN-BLUE-WINDOWS
+          path: autoledger-r10-3-ocean-blue/output/*
+          if-no-files-found: error
+          retention-days: 30
