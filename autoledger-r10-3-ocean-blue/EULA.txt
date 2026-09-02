@@ -1,0 +1,77 @@
+AUTOLEDGER v2.2.5 R10.3 — END USER LICENCE AGREEMENT
+
+Publisher: AUTOLEDGER SYSTEMS PTY LTD
+Website: https://autoledgersystems.co.za
+
+IMPORTANT: PLEASE READ THIS AGREEMENT BEFORE INSTALLING OR USING THE SOFTWARE.
+
+By selecting “I accept the agreement” and continuing with installation, you agree to be bound by this End User Licence Agreement (“EULA”). If you do not agree, do not install or use the software.
+
+1. SOFTWARE PURPOSE
+AUTOLEDGER is a Windows desktop application designed to assist with preparing bank-statement General Ledger payment and receipt information for accounting workflows. It does not replace the user’s accounting system, source banking records or professional accounting judgement.
+
+2. LICENCE GRANT
+AUTOLEDGER SYSTEMS PTY LTD grants you a limited, non-exclusive, non-transferable licence to install and use the edition supplied to you for lawful accounting and bookkeeping purposes, subject to this agreement.
+
+3. AUTOLEDGER FREE
+AUTOLEDGER Free may contain profile and monthly transaction-entry limits. The Free edition may not be modified or used in a manner intended to bypass those limits.
+
+4. AUTOLEDGER PRO
+AUTOLEDGER Pro requires a valid licence key issued by AUTOLEDGER SYSTEMS PTY LTD. Unless a different licence type is expressly supplied, one Pro licence permits one active PC at a time. A licence key may not be sold, shared, reproduced or redistributed except as expressly authorised by AUTOLEDGER SYSTEMS PTY LTD. Normal AUTOLEDGER Pro software updates preserve an existing valid Pro entitlement and do not require purchase of a new key solely because the software has been updated. A customer replacing a PC may transfer the same licence to the replacement PC by deactivating the previous device or, where the previous device is unavailable, by requesting an activation reset from AUTOLEDGER support.
+
+5. LOCAL DATA AND PRO ACTIVATION PRIVACY
+AUTOLEDGER is designed so that bank statements, company profiles, transactions, allocations, account mappings, VAT/tax settings, exports and other accounting data remain stored locally on the user’s computer. AUTOLEDGER does not require bank statement or accounting transaction data to be uploaded to the licence activation service.
+
+AUTOLEDGER Pro may exchange minimal licensing metadata with an AUTOLEDGER activation service to enforce the permitted number of active PCs and to support licence transfer. This licensing metadata may include the licence ID, a cryptographically derived/hashed device identifier, activation status, activation/validation dates, application version and related technical licensing information.
+
+6. USER RESPONSIBILITY
+You are responsible for reviewing imported data, allocations, VAT/tax treatment, account mappings, references, exports and accounting entries before posting or relying on them. AUTOLEDGER does not replace professional accounting judgement.
+
+7. BACKUPS
+You are responsible for maintaining suitable backups of original bank statements, accounting data and AUTOLEDGER local data.
+
+8. RESTRICTIONS
+You may not remove proprietary notices, redistribute private licence-generation/signing utilities or material, circumvent edition restrictions, or use the software for unlawful purposes.
+
+9. OWNERSHIP
+The software, branding and related intellectual property remain the property of AUTOLEDGER SYSTEMS PTY LTD and/or its licensors.
+
+10. WARRANTY DISCLAIMER
+To the maximum extent permitted by law, the software is provided without warranties of uninterrupted operation, error-free results, fitness for a particular purpose or compatibility with every bank statement or accounting environment.
+
+11. LIMITATION OF LIABILITY
+To the maximum extent permitted by applicable law, AUTOLEDGER SYSTEMS PTY LTD will not be liable for indirect, consequential or special loss arising from use of the software. Nothing in this agreement excludes liability that cannot lawfully be excluded.
+
+12. TERMINATION
+This licence terminates if you materially breach this agreement. On termination you must stop using the software and remove copies for which you no longer hold a licence.
+
+13. GOVERNING LAW
+This agreement is governed by the laws of the Republic of South Africa.
+
+14. ENTIRE AGREEMENT
+This EULA forms the agreement governing this software unless superseded by a later written licence agreement supplied by AUTOLEDGER SYSTEMS PTY LTD.
+
+15. SYSTEM REQUIREMENTS
+AUTOLEDGER is supplied as a self-contained Windows application. A separate Python installation is not required. AUTOLEDGER Free does not require an internet connection for normal local operation. AUTOLEDGER Pro may require an internet connection for initial device activation, periodic licence validation and licence transfer where online activation is enabled.
+
+Supported operating systems:
+• Windows 10, 64-bit (x64)
+• Windows 11, 64-bit (x64) — recommended
+
+Windows 7, Windows 8/8.1 and 32-bit Windows are not supported. Windows 11 on ARM-based PCs is not currently an officially validated platform and may rely on Microsoft x64 emulation.
+
+Minimum PC specification:
+• 64-bit Intel or AMD compatible processor, dual-core, approximately 1.5 GHz or faster
+• 4 GB RAM
+• 500 MB free disk space for installation and working data
+• 1366 × 768 display resolution
+• Keyboard and mouse or compatible pointing device
+
+Recommended PC specification:
+• 64-bit Intel or AMD compatible processor, dual-core 2.0 GHz or faster
+• 8 GB RAM or more
+• 1 GB or more free disk space, plus sufficient space for statements, exports and backups
+• 1920 × 1080 display resolution or higher
+• Windows 11 64-bit with current security and operating-system updates
+
+Copyright © 2026 AUTOLEDGER SYSTEMS PTY LTD. All rights reserved.
