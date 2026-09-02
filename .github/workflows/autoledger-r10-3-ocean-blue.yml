@@ -224,23 +224,58 @@ jobs:
             if ((Get-Item $p).Length -lt 5000000) { throw "Installer unexpectedly small: $name" }
           }
 
+          # FULL installers must complete on a genuinely clean Windows user profile.
           & "$root\output\AUTOLEDGER_Free_v2.2.5_R10_3_FULL_STANDALONE_Setup.exe" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP-
           if ($LASTEXITCODE -ne 0) { throw 'Free FULL installer failed' }
           & "$root\output\AUTOLEDGER_Pro_v2.2.5_R10_3_FULL_STANDALONE_Setup.exe" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP-
           if ($LASTEXITCODE -ne 0) { throw 'Pro FULL installer failed' }
+
           $freeInstalled = Join-Path $env:LOCALAPPDATA 'Programs\AUTOLEDGER Free\AUTOLEDGER Free v2.2.5 R10.3.exe'
           $proInstalled = Join-Path $env:LOCALAPPDATA 'Programs\AUTOLEDGER Pro\AUTOLEDGER Pro v2.2.5 R10.3.exe'
           if (!(Test-Path $freeInstalled)) { throw 'Installed Free EXE missing' }
           if (!(Test-Path $proInstalled)) { throw 'Installed Pro EXE missing' }
-          $p = Start-Process $freeInstalled -ArgumentList '--smoke-test' -PassThru -Wait
-          if ($p.ExitCode -ne 0) { throw 'Installed Free smoke failed' }
-          $p = Start-Process $proInstalled -ArgumentList '--smoke-test' -PassThru -Wait
-          if ($p.ExitCode -ne 0) { throw 'Installed Pro smoke failed' }
 
+          # Prove the installer wrote the clean-install context used by the real first-run walkthrough.
+          $realAppData = $env:APPDATA
+          $freeContext = Join-Path $realAppData 'AUTOLEDGER_V225_TEST_Free\install_context_r10.json'
+          $proContext = Join-Path $realAppData 'AUTOLEDGER_V225_TEST_Pro\install_context_r10.json'
+          if (!(Test-Path $freeContext)) { throw 'Free clean-install context marker missing' }
+          if (!(Test-Path $proContext)) { throw 'Pro clean-install context marker missing' }
+          if ((Get-Content $freeContext -Raw) -notmatch '"revision":"R10.3".*"install_kind":"clean"') { throw 'Free clean-install context is wrong' }
+          if ((Get-Content $proContext -Raw) -notmatch '"revision":"R10.3".*"install_kind":"clean"') { throw 'Pro clean-install context is wrong' }
+
+          # Launch each installed app normally with that real clean-install context. It must stay alive
+          # long enough for the first-run Guided Walkthrough to be scheduled and rendered.
+          foreach ($entry in @(@('Free',$freeInstalled), @('Pro',$proInstalled))) {
+            $label = $entry[0]
+            $exe = $entry[1]
+            $proc = Start-Process -FilePath $exe -PassThru
+            Start-Sleep -Seconds 4
+            if ($proc.HasExited) {
+              throw "$label installed app exited unexpectedly during normal first-run startup (exit $($proc.ExitCode))"
+            }
+            Stop-Process -Id $proc.Id -Force
+            Start-Sleep -Milliseconds 500
+          }
+
+          # The explicit --smoke-test itself opens/controls tutorial windows. Run it in an isolated
+          # AppData workspace so it cannot race the separately-tested first-run auto-launch timer.
+          $env:APPDATA = Join-Path $env:RUNNER_TEMP 'r103-installed-smoke'
+          Remove-Item $env:APPDATA -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force $env:APPDATA | Out-Null
+          $p = Start-Process $freeInstalled -ArgumentList '--smoke-test' -PassThru -Wait
+          if ($p.ExitCode -ne 0) { throw "Installed Free isolated smoke failed: $($p.ExitCode)" }
+          $p = Start-Process $proInstalled -ArgumentList '--smoke-test' -PassThru -Wait
+          if ($p.ExitCode -ne 0) { throw "Installed Pro isolated smoke failed: $($p.ExitCode)" }
+          $env:APPDATA = $realAppData
+
+          # UPDATE installers must then install successfully over the validated R10.3 installation.
           & "$root\output\AUTOLEDGER_Free_v2.2.5_R10_3_UPDATE_Setup.exe" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP-
           if ($LASTEXITCODE -ne 0) { throw 'Free UPDATE installer failed over existing install' }
           & "$root\output\AUTOLEDGER_Pro_v2.2.5_R10_3_UPDATE_Setup.exe" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP-
           if ($LASTEXITCODE -ne 0) { throw 'Pro UPDATE installer failed over existing install' }
+          if ((Get-Content $freeContext -Raw) -notmatch '"revision":"R10.3".*"install_kind":"update"') { throw 'Free update context marker is wrong' }
+          if ((Get-Content $proContext -Raw) -notmatch '"revision":"R10.3".*"install_kind":"update"') { throw 'Pro update context marker is wrong' }
 
       - name: Package source and checksums
         shell: pwsh
