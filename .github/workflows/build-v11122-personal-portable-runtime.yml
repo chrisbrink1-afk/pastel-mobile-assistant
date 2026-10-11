@@ -1,0 +1,183 @@
+name: Build v1.11.22 Personal Portable Runtime
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/build-v11122-personal-portable-runtime.yml'
+      - 'desktop/tutorial_ci_diagnostic.py'
+      - 'desktop/v1.11.22_adaptive_tutorial_transform.py'
+      - 'desktop/v1.11.22_tutorial_classic_restore_transform.py'
+  schedule:
+    - cron: '*/5 * * * *'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: pastel-v11122-personal-portable-runtime
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Verify existing Personal source and UI
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          python desktop/tutorial_ci_diagnostic.py
+          if($LASTEXITCODE -ne 0){ throw 'v1.11.22 diagnostic failed' }
+          $diag=Get-Content 'desktop\TUTORIAL_SCRIPT_DIAGNOSTIC_RESULT.txt' -Raw
+          if(!$diag.Contains('Personal transform/compile/self-test: success')){ throw 'Personal self-test missing' }
+          if(!$diag.Contains('Personal tutorial UI smoke: success')){ throw 'Personal UI smoke missing' }
+          $src=Get-Content 'desktop\diag_v11122_personal.pyw' -Raw
+          foreach($marker in @(
+            'APP_VERSION = "1.11.22"',
+            'APP_DATA_NAMESPACE = "PastelPaymentAssistant"',
+            'APP_DATA_FALLBACK = ".pastel_payment_assistant"',
+            'SESSION_SETTING_KEY = "__autosaved_session_v1"',
+            'TUTORIAL_SETTING_KEY = "__tutorial_v2_state"'
+          )){
+            if(!$src.Contains($marker)){ throw "Missing Personal compatibility marker: $marker" }
+          }
+
+      - name: Assemble non-PyInstaller portable runtime
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $out='desktop\Pastel-Payment-Assistant-v1.11.22-Personal-Portable-Runtime'
+          Remove-Item $out -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force "$out\app" | Out-Null
+          New-Item -ItemType Directory -Force "$out\runtime" | Out-Null
+
+          Copy-Item 'desktop\diag_v11122_personal.pyw' "$out\app\PastelPaymentAssistant.pyw" -Force
+
+          $pyroot=(python -c "import sys; print(sys.base_prefix)").Trim()
+          Write-Host "Python runtime root: $pyroot"
+
+          foreach($name in @('python.exe','pythonw.exe','python3.dll','python312.dll')){
+            $src=Join-Path $pyroot $name
+            if(Test-Path $src){ Copy-Item $src "$out\runtime\$name" -Force }
+          }
+          Get-ChildItem $pyroot -Filter 'vcruntime*.dll' -File | ForEach-Object {
+            Copy-Item $_.FullName "$out\runtime\$($_.Name)" -Force
+          }
+          Get-ChildItem $pyroot -Filter 'msvcp*.dll' -File | ForEach-Object {
+            Copy-Item $_.FullName "$out\runtime\$($_.Name)" -Force
+          }
+          Copy-Item (Join-Path $pyroot 'DLLs') "$out\runtime\DLLs" -Recurse -Force
+          Copy-Item (Join-Path $pyroot 'Lib') "$out\runtime\Lib" -Recurse -Force
+          if(Test-Path "$out\runtime\Lib\site-packages"){
+            Remove-Item "$out\runtime\Lib\site-packages" -Recurse -Force
+            New-Item -ItemType Directory -Force "$out\runtime\Lib\site-packages" | Out-Null
+          }
+          Copy-Item (Join-Path $pyroot 'tcl') "$out\runtime\tcl" -Recurse -Force
+
+          @'
+@echo off
+setlocal
+cd /d "%~dp0"
+start "" "%~dp0runtime\pythonw.exe" "%~dp0app\PastelPaymentAssistant.pyw"
+endlocal
+'@ | Set-Content "$out\Start Pastel Payment Assistant.cmd" -Encoding ascii
+
+          @'
+Pastel Payment Assistant v1.11.22 Personal - Portable Runtime Edition
+
+WHY THIS PACKAGE EXISTS
+This edition does NOT use PyInstaller. It runs the same verified v1.11.22 Personal application source with a bundled standard Python 3.12 runtime and Tkinter.
+
+HOW TO START
+Double-click:
+  Start Pastel Payment Assistant.cmd
+
+KEEP THE ENTIRE FOLDER TOGETHER.
+No separate Python installation is required.
+
+YOUR EXISTING PERSONAL DATA IS PRESERVED
+This package uses the SAME Personal workspace as v1.11.20/v1.11.22:
+  %APPDATA%\PastelPaymentAssistant
+
+It does not create a new Personal database namespace and does not migrate, reset, overwrite, or delete your existing profiles, saved rules, settings, transaction history, or autosaved session.
+
+SECURITY
+The launcher invokes the bundled pythonw.exe directly and does not contain a PyInstaller-packed executable. Endpoint security can still apply its own policies, so this is not a guarantee against every security product.
+
+The application logic remains v1.11.22 Personal, including Modern/Classic UI and Tutorial & Help.
+'@ | Set-Content "$out\README.txt" -Encoding utf8
+
+          $sig=Get-AuthenticodeSignature "$out\runtime\pythonw.exe"
+          "pythonw.exe signature status: $($sig.Status)" | Tee-Object -FilePath "$out\RUNTIME_SIGNATURE.txt"
+          if(!(Test-Path "$out\runtime\pythonw.exe")){ throw 'Bundled pythonw.exe missing' }
+          if(!(Test-Path "$out\runtime\DLLs\_tkinter.pyd")){ throw 'Bundled Tkinter extension missing' }
+          if(!(Test-Path "$out\runtime\DLLs\_sqlite3.pyd")){ throw 'Bundled sqlite3 extension missing' }
+          if(!(Test-Path "$out\runtime\tcl")){ throw 'Bundled Tcl/Tk library missing' }
+
+      - name: Test bundled runtime
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $out='desktop\Pastel-Payment-Assistant-v1.11.22-Personal-Portable-Runtime'
+          & "$out\runtime\python.exe" -c "import tkinter, sqlite3, csv, json; r=tkinter.Tk(); r.withdraw(); r.update_idletasks(); r.destroy(); print('Bundled runtime tkinter/sqlite smoke passed')"
+          if($LASTEXITCODE -ne 0){ throw 'Bundled runtime smoke failed' }
+
+          $testData=Join-Path $env:RUNNER_TEMP 'PastelRuntimeSelfTest'
+          Remove-Item $testData -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force $testData | Out-Null
+          $oldAppData=$env:APPDATA
+          $env:APPDATA=$testData
+          try {
+            & "$out\runtime\python.exe" "$out\app\PastelPaymentAssistant.pyw" --self-test
+            if($LASTEXITCODE -ne 0){ throw 'Application self-test under bundled runtime failed' }
+          } finally {
+            $env:APPDATA=$oldAppData
+          }
+
+      - name: Package and checksum
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $folder='desktop\Pastel-Payment-Assistant-v1.11.22-Personal-Portable-Runtime'
+          $zip='desktop\Pastel-Payment-Assistant-v1.11.22-Personal-Portable-Runtime.zip'
+          Remove-Item $zip -Force -ErrorAction SilentlyContinue
+          Compress-Archive $folder $zip -Force
+          $hash=(Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
+          "SHA256=$hash" | Set-Content 'desktop\Pastel-Payment-Assistant-v1.11.22-Personal-Portable-Runtime.sha256.txt'
+          $sig=(Get-Content "$folder\RUNTIME_SIGNATURE.txt" -Raw).Trim()
+          @(
+            'Pastel Payment Assistant v1.11.22 Personal Portable Runtime package succeeded.',
+            "Source/build commit: $env:GITHUB_SHA",
+            "GitHub Actions run ID: $env:GITHUB_RUN_ID",
+            "ZIP SHA256: $hash",
+            'Packaging: bundled Python 3.12 runtime + Tkinter; NO PyInstaller',
+            $sig,
+            'Same Personal AppData namespace: PastelPaymentAssistant',
+            'Existing profiles/rules/settings/history/session compatibility check: passed',
+            'Personal transform/compile/self-test: passed',
+            'Personal Windows tutorial UI smoke: passed',
+            'Bundled runtime tkinter/sqlite smoke: passed',
+            'Application self-test under bundled runtime: passed'
+          ) | Set-Content 'desktop\BUILD_DESKTOP_V1.11.22_PERSONAL_PORTABLE_RUNTIME_SUCCESS.txt'
+
+      - name: Publish verified portable runtime
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git pull --rebase origin main
+          git add -f 'desktop/Pastel-Payment-Assistant-v1.11.22-Personal-Portable-Runtime.zip' 'desktop/Pastel-Payment-Assistant-v1.11.22-Personal-Portable-Runtime.sha256.txt' 'desktop/BUILD_DESKTOP_V1.11.22_PERSONAL_PORTABLE_RUNTIME_SUCCESS.txt'
+          git rm '.github/workflows/build-v11122-personal-portable-runtime.yml'
+          git commit -m 'Publish v1.11.22 Personal portable runtime build [skip ci]'
+          git push origin main
