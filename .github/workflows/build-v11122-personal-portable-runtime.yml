@@ -1,13 +1,11 @@
 name: Build v1.11.22 Personal Portable Runtime
 
 on:
-  workflow_dispatch:
-  push:
+  pull_request:
     branches: [main]
     paths:
-      - '.github/workflows/build-v11122-personal-portable-runtime.yml'
-  schedule:
-    - cron: '*/5 * * * *'
+      - 'desktop/PORTABLE_RUNTIME_BUILD_TRIGGER.txt'
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -24,28 +22,37 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          ref: ${{ github.head_ref }}
+
+      - name: Check whether package already exists
+        id: already
+        shell: powershell
+        run: |
+          if(Test-Path 'desktop\BUILD_DESKTOP_V1.11.22_PERSONAL_PORTABLE_RUNTIME_SUCCESS.txt'){
+            "skip=true" >> $env:GITHUB_OUTPUT
+            Write-Host 'Verified package marker already exists on this PR branch; no rebuild needed.'
+          } else {
+            "skip=false" >> $env:GITHUB_OUTPUT
+          }
 
       - uses: actions/setup-python@v5
+        if: steps.already.outputs.skip != 'true'
         with:
           python-version: '3.12'
 
       - name: Record runtime build run ID
+        if: steps.already.outputs.skip != 'true'
         shell: powershell
         run: |
-          $ErrorActionPreference='Stop'
           @(
             'Pastel Payment Assistant v1.11.22 Personal Portable Runtime build started.',
             "Run ID: $env:GITHUB_RUN_ID",
             "Attempt: $env:GITHUB_RUN_ATTEMPT",
             "Commit: $env:GITHUB_SHA"
           ) | Set-Content 'desktop\BUILD_DESKTOP_V1.11.22_PERSONAL_PORTABLE_RUNTIME_START.txt'
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add -f 'desktop/BUILD_DESKTOP_V1.11.22_PERSONAL_PORTABLE_RUNTIME_START.txt'
-          git commit -m 'Record v1.11.22 portable runtime run [skip ci]'
-          git push origin HEAD:main
 
       - name: Verify existing Personal source and UI
+        if: steps.already.outputs.skip != 'true'
         shell: powershell
         run: |
           $ErrorActionPreference='Stop'
@@ -66,6 +73,7 @@ jobs:
           }
 
       - name: Assemble non-PyInstaller portable runtime
+        if: steps.already.outputs.skip != 'true'
         shell: powershell
         run: |
           $ErrorActionPreference='Stop'
@@ -76,7 +84,6 @@ jobs:
           Copy-Item 'desktop\diag_v11122_personal.pyw' "$out\app\PastelPaymentAssistant.pyw" -Force
 
           $pyroot=(python -c "import sys; print(sys.base_prefix)").Trim()
-          Write-Host "Python runtime root: $pyroot"
           foreach($name in @('python.exe','pythonw.exe','python3.dll','python312.dll')){
             $src=Join-Path $pyroot $name
             if(Test-Path $src){ Copy-Item $src "$out\runtime\$name" -Force }
@@ -102,7 +109,7 @@ endlocal
           @'
 Pastel Payment Assistant v1.11.22 Personal - Portable Runtime Edition
 
-This edition DOES NOT use PyInstaller. It runs the same verified v1.11.22 Personal application source using a bundled Python 3.12 runtime with Tkinter.
+This edition does NOT use PyInstaller. It runs the same verified v1.11.22 Personal application source with a bundled Python 3.12 runtime and Tkinter.
 
 START
 Double-click:
@@ -130,6 +137,7 @@ Application functionality remains v1.11.22 Personal, including Modern/Classic UI
           "pythonw.exe signature status: $($sig.Status)" | Set-Content "$out\RUNTIME_SIGNATURE.txt"
 
       - name: Test bundled runtime
+        if: steps.already.outputs.skip != 'true'
         shell: powershell
         run: |
           $ErrorActionPreference='Stop'
@@ -149,6 +157,7 @@ Application functionality remains v1.11.22 Personal, including Modern/Classic UI
           }
 
       - name: Package and checksum
+        if: steps.already.outputs.skip != 'true'
         shell: powershell
         run: |
           $ErrorActionPreference='Stop'
@@ -174,32 +183,16 @@ Application functionality remains v1.11.22 Personal, including Modern/Classic UI
             'Application self-test under bundled runtime: passed'
           ) | Set-Content 'desktop\BUILD_DESKTOP_V1.11.22_PERSONAL_PORTABLE_RUNTIME_SUCCESS.txt'
 
-      - name: Publish verified portable runtime
+      - name: Commit verified package to PR branch
+        if: steps.already.outputs.skip != 'true'
         shell: powershell
+        env:
+          HEAD_BRANCH: ${{ github.head_ref }}
         run: |
           $ErrorActionPreference='Stop'
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git pull --rebase origin main
+          git pull --rebase origin $env:HEAD_BRANCH
           git add -f 'desktop/Pastel-Payment-Assistant-v1.11.22-Personal-Portable-Runtime.zip' 'desktop/Pastel-Payment-Assistant-v1.11.22-Personal-Portable-Runtime.sha256.txt' 'desktop/BUILD_DESKTOP_V1.11.22_PERSONAL_PORTABLE_RUNTIME_SUCCESS.txt'
-          git rm '.github/workflows/build-v11122-personal-portable-runtime.yml'
-          git commit -m 'Publish v1.11.22 Personal portable runtime build [skip ci]'
-          git push origin main
-
-      - name: Publish failure marker
-        if: failure()
-        shell: powershell
-        run: |
-          $ErrorActionPreference='Continue'
-          @(
-            'Pastel Payment Assistant v1.11.22 Personal Portable Runtime build FAILED.',
-            "Run ID: $env:GITHUB_RUN_ID",
-            "Attempt: $env:GITHUB_RUN_ATTEMPT",
-            "Commit: $env:GITHUB_SHA"
-          ) | Set-Content 'desktop\BUILD_DESKTOP_V1.11.22_PERSONAL_PORTABLE_RUNTIME_FAILURE.txt'
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git pull --rebase origin main
-          git add -f 'desktop/BUILD_DESKTOP_V1.11.22_PERSONAL_PORTABLE_RUNTIME_FAILURE.txt'
-          git commit -m 'Record v1.11.22 portable runtime build failure [skip ci]'
-          git push origin main
+          git commit -m 'Add verified v1.11.22 Personal portable runtime [skip ci]'
+          git push origin HEAD:$env:HEAD_BRANCH
