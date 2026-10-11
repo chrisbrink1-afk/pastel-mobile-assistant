@@ -1,0 +1,1 @@
+Build the verified non-PyInstaller v1.11.22 Personal portable runtime package. Preserve the existing PastelPaymentAssistant AppData namespace.
