@@ -1,0 +1,12 @@
+Pastel Payment Assistant v1.11.22 Personal Portable Runtime package succeeded.
+Source/build commit: 2730f9f91564cead9ddb1f7a8e7e284311065c9a
+GitHub Actions run ID: 38136876930
+ZIP SHA256: 7f92b45bec8ffc602a56c237e8f4b48a43eecf8602df55bf6e724799d3b5db85
+Packaging: bundled Python 3.12 runtime + Tkinter; NO PyInstaller
+pythonw.exe signature status: Valid
+Same Personal AppData namespace: PastelPaymentAssistant
+Existing profiles/rules/settings/history/session compatibility check: passed
+Personal transform/compile/self-test: passed
+Personal Windows tutorial UI smoke: passed
+Bundled runtime tkinter/sqlite smoke: passed
+Application self-test under bundled runtime: passed
